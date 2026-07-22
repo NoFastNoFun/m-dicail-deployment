@@ -14,6 +14,9 @@ COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"
 BACKEND_DIR="${DEPLOY_PATH}/backend"
 TOKEN_FILE="${DEPLOY_PATH}/.generated/backend-git-token"
 
+# Never use SSH for GitHub on the VPS (avoids host-key prompts / deploy keys).
+unset GIT_SSH_COMMAND || true
+
 log() {
   echo "[m-dicail-deploy] $*"
 }
@@ -49,14 +52,32 @@ read_backend_token() {
   fi
 }
 
+https_github_url() {
+  local url="$1"
+  case "${url}" in
+    git@github.com:*)
+      printf 'https://github.com/%s' "${url#git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      printf 'https://github.com/%s' "${url#ssh://git@github.com/}"
+      ;;
+    *)
+      printf '%s' "${url}"
+      ;;
+  esac
+}
+
 git_with_auth() {
   local token
   token="$(read_backend_token)"
-  if [[ -n "${token}" ]]; then
-    git -c "http.extraHeader=Authorization: Bearer ${token}" "$@"
-  else
-    git "$@"
+  if [[ -z "${token}" ]]; then
+    die "BACKEND_GIT_TOKEN or ${TOKEN_FILE} required for HTTPS clone/fetch"
   fi
+  git \
+    -c "url.https://github.com/.insteadOf=git@github.com:" \
+    -c "url.https://github.com/.insteadOf=ssh://git@github.com/" \
+    -c "http.extraHeader=Authorization: Bearer ${token}" \
+    "$@"
 }
 
 require_bootstrap() {
@@ -75,13 +96,10 @@ require_bootstrap() {
 
 sync_backend_tag() {
   local tag="$1"
-  local token
 
   export GIT_TERMINAL_PROMPT=0
-  token="$(read_backend_token)"
-  if [[ -z "${token}" ]]; then
-    log "WARN: no BACKEND_GIT_TOKEN / ${TOKEN_FILE}; private HTTPS clones will fail"
-  fi
+  BACKEND_REPO_URL="$(https_github_url "${BACKEND_REPO_URL}")"
+  log "Backend git over HTTPS (PAT Bearer): ${BACKEND_REPO_URL}"
 
   if [[ -d "${BACKEND_DIR}/.git" ]]; then
     log "Fetching tags in ${BACKEND_DIR}"
