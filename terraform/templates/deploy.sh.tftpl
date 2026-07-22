@@ -11,7 +11,8 @@ COMPOSE_FILE="$${DEPLOY_PATH}/docker-compose.prod.yml"
 
 export DEBIAN_FRONTEND=noninteractive
 export GIT_TERMINAL_PROMPT=0
-export GIT_SSH_COMMAND="ssh -i /root/.ssh/m-dicail_github -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
+TOKEN_FILE="$${DEPLOY_PATH}/.generated/backend-git-token"
 
 log() {
   echo "[m-dicail-deploy] $*"
@@ -19,6 +20,27 @@ log() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+read_backend_token() {
+  if [[ -n "$${BACKEND_GIT_TOKEN:-}" ]]; then
+    printf '%s' "$${BACKEND_GIT_TOKEN}"
+    return
+  fi
+  if [[ -f "$${TOKEN_FILE}" ]]; then
+    tr -d '\r\n' < "$${TOKEN_FILE}"
+  fi
+}
+
+# Non-interactive HTTPS auth for private GitHub repos (PAT as Bearer).
+git_with_auth() {
+  local token
+  token="$(read_backend_token)"
+  if [[ -n "$${token}" ]]; then
+    git -c "http.extraHeader=Authorization: Bearer $${token}" "$@"
+  else
+    git "$@"
+  fi
 }
 
 install_docker() {
@@ -82,19 +104,27 @@ configure_firewall() {
 
 sync_backend() {
   local backend_dir="$${DEPLOY_PATH}/backend"
+  local token
   mkdir -p "$${DEPLOY_PATH}"
+
+  token="$(read_backend_token)"
+  if [[ -z "$${token}" ]]; then
+    log "WARN: no backend_git_token (BACKEND_GIT_TOKEN / $${TOKEN_FILE}); private HTTPS clones will fail"
+  else
+    log "Using GitHub PAT for backend git over HTTPS (non-interactive)"
+  fi
 
   if [[ -d "$${backend_dir}/.git" ]]; then
     log "Updating backend ($${BACKEND_REF})"
     git -C "$${backend_dir}" remote set-url origin "$${BACKEND_REPO_URL}"
-    git -C "$${backend_dir}" fetch --all --tags --prune
+    git_with_auth -C "$${backend_dir}" fetch --all --tags --prune
     if git -C "$${backend_dir}" rev-parse "refs/tags/$${BACKEND_REF}" >/dev/null 2>&1; then
       log "Checkout tag $${BACKEND_REF} (detached HEAD)"
       git -C "$${backend_dir}" checkout --detach "refs/tags/$${BACKEND_REF}"
       git -C "$${backend_dir}" reset --hard "refs/tags/$${BACKEND_REF}"
     else
       git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
-      git -C "$${backend_dir}" pull --ff-only origin "$${BACKEND_REF}" || \
+      git_with_auth -C "$${backend_dir}" pull --ff-only origin "$${BACKEND_REF}" || \
         git -C "$${backend_dir}" reset --hard "$${BACKEND_REF}"
     fi
   else
@@ -107,8 +137,12 @@ sync_backend() {
         dnf install -y git
       fi
     fi
-    git clone --branch "$${BACKEND_REF}" --depth 1 "$${BACKEND_REPO_URL}" "$${backend_dir}" \
-      || git clone "$${BACKEND_REPO_URL}" "$${backend_dir}" && git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
+    if ! git_with_auth clone --branch "$${BACKEND_REF}" --depth 1 "$${BACKEND_REPO_URL}" "$${backend_dir}"; then
+      git_with_auth clone "$${BACKEND_REPO_URL}" "$${backend_dir}"
+      git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
+    fi
+    # Keep origin URL free of credentials
+    git -C "$${backend_dir}" remote set-url origin "$${BACKEND_REPO_URL}"
   fi
 }
 

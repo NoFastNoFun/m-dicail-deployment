@@ -15,6 +15,10 @@ acme_email = "ops@example.com"
 # backend_ref      = "main"
 # manage_firewall  = true
 
+# Required for private backend repos (classic or fine-grained PAT with contents:read).
+# Do not put this in the git remote URL; Terraform writes it to the VPS as mode 600.
+backend_git_token = "ghp_or_github_pat_xxx"
+
 secret_key        = "change-me-to-a-long-random-string"
 postgres_user     = "mdicail"
 postgres_password = "change-me-strong-password"

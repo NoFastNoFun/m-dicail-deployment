@@ -43,6 +43,13 @@ variable "backend_repo_url" {
   default     = "https://github.com/NoFastNoFun/m-dicail-backend.git"
 }
 
+variable "backend_git_token" {
+  description = "GitHub PAT (classic or fine-grained) with contents:read on the backend repo. Required for private repos; avoids interactive username/password prompts on the VPS."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "backend_ref" {
   description = "Git branch, tag, or commit to deploy"
   type        = string

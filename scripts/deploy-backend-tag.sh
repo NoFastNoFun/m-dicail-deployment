@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Runs on the VPS after Terraform bootstrap. Checks out a backend git tag and rebuilds Compose.
 # Required env: BACKEND_TAG
-# Optional env: DEPLOY_PATH, BACKEND_REPO_URL, DOMAIN
+# Optional env: DEPLOY_PATH, BACKEND_REPO_URL, DOMAIN, BACKEND_GIT_TOKEN
 
 DEPLOY_PATH="${DEPLOY_PATH:-/opt/m-dicail}"
 BACKEND_REPO_URL="${BACKEND_REPO_URL:-https://github.com/NoFastNoFun/m-dicail-backend.git}"
@@ -12,6 +12,7 @@ BACKEND_TAG="${BACKEND_TAG:-}"
 
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"
 BACKEND_DIR="${DEPLOY_PATH}/backend"
+TOKEN_FILE="${DEPLOY_PATH}/.generated/backend-git-token"
 
 log() {
   echo "[m-dicail-deploy] $*"
@@ -38,6 +39,26 @@ require_root() {
   fi
 }
 
+read_backend_token() {
+  if [[ -n "${BACKEND_GIT_TOKEN:-}" ]]; then
+    printf '%s' "${BACKEND_GIT_TOKEN}"
+    return
+  fi
+  if [[ -f "${TOKEN_FILE}" ]]; then
+    tr -d '\r\n' < "${TOKEN_FILE}"
+  fi
+}
+
+git_with_auth() {
+  local token
+  token="$(read_backend_token)"
+  if [[ -n "${token}" ]]; then
+    git -c "http.extraHeader=Authorization: Bearer ${token}" "$@"
+  else
+    git "$@"
+  fi
+}
+
 require_bootstrap() {
   mkdir -p "${DEPLOY_PATH}"
 
@@ -54,15 +75,24 @@ require_bootstrap() {
 
 sync_backend_tag() {
   local tag="$1"
+  local token
+
+  export GIT_TERMINAL_PROMPT=0
+  token="$(read_backend_token)"
+  if [[ -z "${token}" ]]; then
+    log "WARN: no BACKEND_GIT_TOKEN / ${TOKEN_FILE}; private HTTPS clones will fail"
+  fi
 
   if [[ -d "${BACKEND_DIR}/.git" ]]; then
     log "Fetching tags in ${BACKEND_DIR}"
-    git -C "${BACKEND_DIR}" fetch --all --tags --prune
+    git -C "${BACKEND_DIR}" remote set-url origin "${BACKEND_REPO_URL}"
+    git_with_auth -C "${BACKEND_DIR}" fetch --all --tags --prune
   else
     log "Cloning backend from ${BACKEND_REPO_URL}"
     rm -rf "${BACKEND_DIR}"
-    git clone "${BACKEND_REPO_URL}" "${BACKEND_DIR}"
-    git -C "${BACKEND_DIR}" fetch --all --tags --prune
+    git_with_auth clone "${BACKEND_REPO_URL}" "${BACKEND_DIR}"
+    git -C "${BACKEND_DIR}" remote set-url origin "${BACKEND_REPO_URL}"
+    git_with_auth -C "${BACKEND_DIR}" fetch --all --tags --prune
   fi
 
   if ! git -C "${BACKEND_DIR}" rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then

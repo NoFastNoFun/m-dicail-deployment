@@ -116,7 +116,15 @@ jobs:
       - name: Deploy tag on VPS
         env:
           TAG: ${{ steps.tag.outputs.value }}
+          BACKEND_GIT_TOKEN: ${{ secrets.BACKEND_READ_TOKEN }}
         run: |
+          set -euo pipefail
+          # Install PAT on the VPS (mode 600) for non-interactive private git over HTTPS.
+          if [ -n "${BACKEND_GIT_TOKEN}" ]; then
+            printf '%s' "${BACKEND_GIT_TOKEN}" | ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+              "sudo mkdir -p '${DEPLOY_PATH}/.generated' && sudo tee '${DEPLOY_PATH}/.generated/backend-git-token' >/dev/null && sudo chmod 600 '${DEPLOY_PATH}/.generated/backend-git-token'"
+          fi
+
           ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
             "sudo env \
               BACKEND_TAG='${TAG}' \

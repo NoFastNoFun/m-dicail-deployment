@@ -35,6 +35,8 @@ locals {
     manage_firewall  = var.manage_firewall
   }), "\r\n", "\n")
 
+  backend_git_token_file = var.backend_git_token
+
   # Triggers re-provision when deploy inputs or artifacts change.
   content_fingerprint = sha256(join("|", [
     local.env_file,
@@ -46,6 +48,8 @@ locals {
     var.backend_ref,
     var.domain,
     var.deploy_path,
+    # Re-run when token presence/value changes without embedding the secret in triggers literally via sha of token
+    sha256(var.backend_git_token),
   ]))
 }
 
@@ -65,6 +69,12 @@ resource "local_file" "rendered_deploy_script" {
   content         = local.deploy_script
   filename        = "${path.module}/.generated/deploy.sh"
   file_permission = "0755"
+}
+
+resource "local_file" "rendered_backend_git_token" {
+  content         = local.backend_git_token_file
+  filename        = "${path.module}/.generated/backend-git-token"
+  file_permission = "0600"
 }
 
 resource "null_resource" "deploy" {
@@ -112,9 +122,15 @@ resource "null_resource" "deploy" {
     destination = "${var.deploy_path}/.generated/deploy.sh"
   }
 
+  provisioner "file" {
+    source      = local_file.rendered_backend_git_token.filename
+    destination = "${var.deploy_path}/.generated/backend-git-token"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "chmod 600 ${var.deploy_path}/.env",
+      "chmod 600 ${var.deploy_path}/.generated/backend-git-token",
       "chmod 755 ${var.deploy_path}/.generated/deploy.sh",
       "sudo ${var.deploy_path}/.generated/deploy.sh",
     ]
@@ -124,5 +140,6 @@ resource "null_resource" "deploy" {
     local_file.rendered_nginx_default,
     local_file.rendered_env,
     local_file.rendered_deploy_script,
+    local_file.rendered_backend_git_token,
   ]
 }

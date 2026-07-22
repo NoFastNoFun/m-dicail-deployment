@@ -12,7 +12,7 @@ This does **not** provision a cloud server. You bring the VPS; Terraform configu
 2. SSH access as `root` (or a user with passwordless `sudo`) using a private key.
 3. Cloudflare DNS for `nf2.dev` configured as below (required before `terraform apply`).
 4. [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5 on your local machine.
-5. The backend git repo reachable from the VPS (`backend_repo_url`). Public HTTPS clone works out of the box; private repos need credentials or a deploy key on the VPS.
+5. The backend git repo reachable from the VPS (`backend_repo_url`). Public HTTPS clone works out of the box. For a **private** backend, set `backend_git_token` in `terraform.tfvars` to a GitHub PAT with `contents:read` (classic or fine-grained). Terraform installs it on the VPS and git uses `Authorization: Bearer` — no interactive username prompt.
 
 ## Cloudflare DNS
 
@@ -66,6 +66,7 @@ On the VPS, files land under `/opt/m-dicail` by default:
 cd m-dicail-deployment/terraform
 cp ../terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: ssh_host, acme_email, secrets, key path
+# For a private backend: set backend_git_token to a PAT (contents:read)
 # domain is already medicail.nf2.dev
 
 terraform init
@@ -165,7 +166,7 @@ This deployment repo is separate from `m-dicail-backend`. The workflow checks th
 1. Create a fine-grained PAT (or classic PAT) with **read** access to `NoFastNoFun/m-dicail-backend` contents.
 2. Store it as secret `BACKEND_READ_TOKEN` on `m-dicail-deployment`.
 
-If the backend is private, the VPS still needs its **own** clone credentials (deploy key or HTTPS token on the server). `BACKEND_READ_TOKEN` is only used by Actions to verify the tag; it is not copied to the VPS.
+`BACKEND_READ_TOKEN` is used by Actions to verify the tag **and** is written to `/opt/m-dicail/.generated/backend-git-token` on the VPS so `git fetch`/`clone` of a private backend stays non-interactive. The same token (or a dedicated one) should also be set as `backend_git_token` for the initial Terraform bootstrap.
 
 ### Run a deploy
 
