@@ -123,6 +123,9 @@ Open the deployment repo → **Settings** → **Secrets and variables** → **Ac
 
 | Name | Purpose |
 |------|---------|
+| `VPS_HOST` | VPS IP or hostname (**required**) |
+| `VPS_USER` | SSH user (defaults to `root` if unset) |
+| `VPS_PORT` | SSH port (defaults to `22` if unset) |
 | `VPS_SSH_PRIVATE_KEY` | Private key used by Actions to SSH into the VPS (PEM / OpenSSH format, full file contents) |
 | `VPS_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <VPS_HOST>` (recommended; pins host key) |
 | `BACKEND_READ_TOKEN` | PAT or fine-grained token with `contents:read` on `NoFastNoFun/m-dicail-backend` (required if the backend repo is private; recommended for rate limits even if public) |
@@ -131,9 +134,6 @@ Open the deployment repo → **Settings** → **Secrets and variables** → **Ac
 
 | Name | Example / default | Purpose |
 |------|-------------------|---------|
-| `VPS_HOST` | `203.0.113.10` | VPS IP or hostname (**required**) |
-| `VPS_USER` | `root` | SSH user |
-| `VPS_PORT` | `22` | SSH port |
 | `DEPLOY_PATH` | `/opt/m-dicail` | Install path on the VPS |
 | `BACKEND_REPO` | `NoFastNoFun/m-dicail-backend` | `owner/repo` used to verify the tag via GitHub API |
 | `BACKEND_REPO_URL` | `https://github.com/NoFastNoFun/m-dicail-backend.git` | Git URL cloned/fetched on the VPS |

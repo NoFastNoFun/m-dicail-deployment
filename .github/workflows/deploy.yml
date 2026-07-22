@@ -17,9 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BACKEND_REPO: ${{ vars.BACKEND_REPO || 'NoFastNoFun/m-dicail-backend' }}
-      VPS_HOST: ${{ vars.VPS_HOST }}
-      VPS_USER: ${{ vars.VPS_USER || 'root' }}
-      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || 'root' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/m-dicail' }}
       DOMAIN: ${{ vars.DOMAIN || 'medicail.nf2.dev' }}
       BACKEND_REPO_URL: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
@@ -58,7 +58,7 @@ jobs:
       - name: Require VPS_HOST
         run: |
           if [ -z "${VPS_HOST}" ]; then
-            echo "::error::Repository variable VPS_HOST is required"
+            echo "::error::Secret VPS_HOST is required"
             exit 1
           fi
 
