@@ -39,10 +39,15 @@ locals {
   }), "\r\n", "\n")
 
   backend_git_token_file = var.backend_git_token
-  firewall_script        = file("${path.module}/../scripts/configure-host-firewall.sh")
+  # Strip CR so bash on the VPS never sees `pipefail\r` (invalid option name).
+  firewall_script = replace(replace(
+    file("${path.module}/../scripts/configure-host-firewall.sh"),
+    "\r\n",
+    "\n",
+  ), "\r", "")
 
   # Bump when deploy semantics change so null_resource always re-runs.
-  deploy_generation = "4-lock-down-ports"
+  deploy_generation = "5-firewall-lf"
 
   # Triggers re-provision when deploy inputs or artifacts change.
   content_fingerprint = sha256(join("|", [
@@ -155,6 +160,8 @@ resource "null_resource" "deploy" {
       "chmod 600 ${var.deploy_path}/.generated/backend-git-token",
       "chmod 755 ${var.deploy_path}/.generated/deploy.sh",
       "chmod 755 ${var.deploy_path}/.generated/configure-host-firewall.sh",
+      # Belt-and-suspenders: drop any CR that survived the file provisioner.
+      "sed -i 's/\\r$//' ${var.deploy_path}/.generated/deploy.sh ${var.deploy_path}/.generated/configure-host-firewall.sh",
       "if grep -nE 'upstream_|[$][$]' ${var.deploy_path}/nginx/conf.d/default.conf; then echo 'REFUSING broken nginx config' >&2; exit 1; fi",
       "echo '[m-dicail-deploy] nginx site config (head):' && sed -n '1,45p' ${var.deploy_path}/nginx/conf.d/default.conf",
       "sudo ${var.deploy_path}/.generated/deploy.sh",
