@@ -12,7 +12,8 @@ server {
     }
 
     location / {
-        return 301 https://$$host$$request_uri;
+        # Braces required: $host$request_uri is parsed as one invalid var name.
+        return 301 https://$${host}$${request_uri};
     }
 }
 
