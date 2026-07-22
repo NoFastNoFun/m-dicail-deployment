@@ -36,9 +36,13 @@ After apply, the API is at `https://medicail.nf2.dev`.
 
 ```
 m-dicail-deployment/
+├── .github/workflows/
+│   └── deploy.yml                # manual tag deploy (workflow_dispatch)
 ├── docker/
 │   ├── docker-compose.prod.yml   # prod stack (Postgres not published)
 │   └── nginx/                    # base nginx.conf; site conf rendered by Terraform
+├── scripts/
+│   └── deploy-backend-tag.sh     # VPS tag checkout + compose rebuild (used by Actions)
 ├── terraform/
 │   ├── main.tf                   # SSH provisioners + deploy
 │   ├── variables.tf
@@ -56,7 +60,7 @@ On the VPS, files land under `/opt/m-dicail` by default:
 | `backend/` | Git clone used as Docker build context |
 | `nginx/` | Prod nginx config with ACME + TLS redirect |
 
-## Deploy
+## Deploy (bootstrap with Terraform)
 
 ```bash
 cd m-dicail-deployment/terraform
@@ -88,7 +92,98 @@ Useful outputs after apply:
 
 Re-running `terraform apply` re-syncs artifacts and re-runs the deploy script when inputs or file contents change.
 
-## Secrets
+## Manual deploy from GitHub Actions
+
+Recurring releases use a **manual** workflow in this repo. Creating a tag on `m-dicail-backend` does **not** deploy anything. You run Actions here and pass the tag.
+
+Flow: bootstrap once with Terraform → tag + push on backend → run **Deploy backend tag** in this repo.
+
+### Prerequisites
+
+1. VPS already bootstrapped (`terraform apply` completed; Compose, TLS, and `.env` present under `/opt/m-dicail`).
+2. This repository is on GitHub with Actions enabled.
+3. SSH from GitHub Actions runners to the VPS (key in secrets; public key on the VPS).
+
+### Create a release tag (backend repo)
+
+In `m-dicail-backend` only:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+That push does not trigger a deploy.
+
+### GitHub setup (`m-dicail-deployment`)
+
+Open the deployment repo → **Settings** → **Secrets and variables** → **Actions**.
+
+**Secrets**
+
+| Name | Purpose |
+|------|---------|
+| `VPS_SSH_PRIVATE_KEY` | Private key used by Actions to SSH into the VPS (PEM / OpenSSH format, full file contents) |
+| `VPS_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <VPS_HOST>` (recommended; pins host key) |
+| `BACKEND_READ_TOKEN` | PAT or fine-grained token with `contents:read` on `NoFastNoFun/m-dicail-backend` (required if the backend repo is private; recommended for rate limits even if public) |
+
+**Variables**
+
+| Name | Example / default | Purpose |
+|------|-------------------|---------|
+| `VPS_HOST` | `203.0.113.10` | VPS IP or hostname (**required**) |
+| `VPS_USER` | `root` | SSH user |
+| `VPS_PORT` | `22` | SSH port |
+| `DEPLOY_PATH` | `/opt/m-dicail` | Install path on the VPS |
+| `BACKEND_REPO` | `NoFastNoFun/m-dicail-backend` | `owner/repo` used to verify the tag via GitHub API |
+| `BACKEND_REPO_URL` | `https://github.com/NoFastNoFun/m-dicail-backend.git` | Git URL cloned/fetched on the VPS |
+| `DOMAIN` | `medicail.nf2.dev` | Used for the post-deploy health check |
+
+#### SSH key on the VPS
+
+Generate a dedicated key (or reuse the Terraform key):
+
+```bash
+ssh-keygen -t ed25519 -f ./gha-m-dicail-deploy -C "github-actions-m-dicail-deploy" -N ""
+```
+
+- Put the **private** key contents into secret `VPS_SSH_PRIVATE_KEY`.
+- Append the **public** key to the VPS user's `~/.ssh/authorized_keys` (for `VPS_USER`, usually `root`).
+
+Pin the host key:
+
+```bash
+ssh-keyscan -H YOUR_VPS_IP
+```
+
+Paste that output into secret `VPS_SSH_KNOWN_HOSTS`.
+
+#### Cross-repo token (`BACKEND_READ_TOKEN`)
+
+This deployment repo is separate from `m-dicail-backend`. The workflow checks that the tag exists on the backend repo before SSHing.
+
+1. Create a fine-grained PAT (or classic PAT) with **read** access to `NoFastNoFun/m-dicail-backend` contents.
+2. Store it as secret `BACKEND_READ_TOKEN` on `m-dicail-deployment`.
+
+If the backend is private, the VPS still needs its **own** clone credentials (deploy key or HTTPS token on the server). `BACKEND_READ_TOKEN` is only used by Actions to verify the tag; it is not copied to the VPS.
+
+### Run a deploy
+
+1. Tag and push on `m-dicail-backend` (see above).
+2. In `m-dicail-deployment` → **Actions** → **Deploy backend tag** → **Run workflow**.
+3. Enter the tag (e.g. `v1.2.0`) and confirm.
+4. Watch the job; it fails immediately if the tag is missing on the backend repo.
+5. Confirm `https://medicail.nf2.dev/health`.
+
+The workflow copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, runs `docker compose up -d --build`, and smoke-checks health. It does not re-run Terraform, Certbot, or firewall setup.
+
+### Non-goals
+
+- No auto-deploy when a backend tag is created.
+- No image registry; images are still built on the VPS from the tagged source.
+- Terraform remains for bootstrap / infra re-sync only; day-to-day releases use this Actions workflow.
+
+## Secrets (Terraform)
 
 - Do **not** commit `terraform/terraform.tfvars` or Terraform state if they contain secrets.
 - Prefer strong random values for `secret_key` and `postgres_password`.

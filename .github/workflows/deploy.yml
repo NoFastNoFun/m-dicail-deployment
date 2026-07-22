@@ -1,0 +1,115 @@
+name: Deploy backend tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: "Git tag on m-dicail-backend to deploy (e.g. v1.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Verify tag and deploy to VPS
+    runs-on: ubuntu-latest
+    env:
+      BACKEND_REPO: ${{ vars.BACKEND_REPO || 'NoFastNoFun/m-dicail-backend' }}
+      VPS_HOST: ${{ vars.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER || 'root' }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/m-dicail' }}
+      DOMAIN: ${{ vars.DOMAIN || 'medicail.nf2.dev' }}
+      BACKEND_REPO_URL: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
+
+    steps:
+      - name: Checkout deployment repo
+        uses: actions/checkout@v4
+
+      - name: Normalize backend tag
+        id: tag
+        run: |
+          TAG="${{ inputs.backend_tag }}"
+          TAG="${TAG#refs/tags/}"
+          TAG="$(echo -n "$TAG" | tr -d '[:space:]')"
+          if [ -z "$TAG" ]; then
+            echo "::error::backend_tag is empty after normalization"
+            exit 1
+          fi
+          echo "value=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Deploying backend tag: $TAG"
+
+      - name: Verify tag exists on backend repository
+        env:
+          GH_TOKEN: ${{ secrets.BACKEND_READ_TOKEN || github.token }}
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          echo "Checking refs/tags/${TAG} on ${BACKEND_REPO}"
+          if gh api --silent "repos/${BACKEND_REPO}/git/ref/tags/${TAG}"; then
+            echo "Tag ${TAG} found on ${BACKEND_REPO}"
+          else
+            echo "::error::Tag '${TAG}' does not exist on ${BACKEND_REPO}. Create and push the tag on the backend repo before deploying."
+            exit 1
+          fi
+
+      - name: Require VPS_HOST
+        run: |
+          if [ -z "${VPS_HOST}" ]; then
+            echo "::error::Repository variable VPS_HOST is required"
+            exit 1
+          fi
+
+      - name: Start SSH agent and load key
+        env:
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VPS_SSH_PRIVATE_KEY}" ]; then
+            echo "::error::Secret VPS_SSH_PRIVATE_KEY is required"
+            exit 1
+          fi
+
+          eval "$(ssh-agent -s)"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          KEY_FILE="$(mktemp)"
+          printf '%s\n' "${VPS_SSH_PRIVATE_KEY}" > "${KEY_FILE}"
+          chmod 600 "${KEY_FILE}"
+          ssh-add "${KEY_FILE}"
+          rm -f "${KEY_FILE}"
+
+          if [ -n "${VPS_SSH_KNOWN_HOSTS}" ]; then
+            printf '%s\n' "${VPS_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+          else
+            echo "::warning::VPS_SSH_KNOWN_HOSTS not set; using ssh-keyscan (less safe)"
+            ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+            chmod 600 ~/.ssh/known_hosts
+          fi
+
+          echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=${SSH_AGENT_PID}" >> "$GITHUB_ENV"
+
+      - name: Copy deploy script to VPS
+        run: |
+          scp -P "${VPS_PORT}" \
+            scripts/deploy-backend-tag.sh \
+            "${VPS_USER}@${VPS_HOST}:/tmp/deploy-backend-tag.sh"
+
+      - name: Deploy tag on VPS
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+            "sudo env \
+              BACKEND_TAG='${TAG}' \
+              DEPLOY_PATH='${DEPLOY_PATH}' \
+              BACKEND_REPO_URL='${BACKEND_REPO_URL}' \
+              DOMAIN='${DOMAIN}' \
+              bash /tmp/deploy-backend-tag.sh \
+            && rm -f /tmp/deploy-backend-tag.sh"

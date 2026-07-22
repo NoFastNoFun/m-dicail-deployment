@@ -85,9 +85,15 @@ sync_backend() {
   if [[ -d "$${backend_dir}/.git" ]]; then
     log "Updating backend ($${BACKEND_REF})"
     git -C "$${backend_dir}" fetch --all --tags --prune
-    git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
-    git -C "$${backend_dir}" pull --ff-only origin "$${BACKEND_REF}" || \
-      git -C "$${backend_dir}" reset --hard "$${BACKEND_REF}"
+    if git -C "$${backend_dir}" rev-parse "refs/tags/$${BACKEND_REF}" >/dev/null 2>&1; then
+      log "Checkout tag $${BACKEND_REF} (detached HEAD)"
+      git -C "$${backend_dir}" checkout --detach "refs/tags/$${BACKEND_REF}"
+      git -C "$${backend_dir}" reset --hard "refs/tags/$${BACKEND_REF}"
+    else
+      git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
+      git -C "$${backend_dir}" pull --ff-only origin "$${BACKEND_REF}" || \
+        git -C "$${backend_dir}" reset --hard "$${BACKEND_REF}"
+    fi
   else
     log "Cloning backend from $${BACKEND_REPO_URL}"
     rm -rf "$${backend_dir}"
