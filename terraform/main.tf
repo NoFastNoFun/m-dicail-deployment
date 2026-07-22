@@ -26,14 +26,14 @@ locals {
     domain = var.domain
   })
 
-  deploy_script = templatefile("${path.module}/templates/deploy.sh.tftpl", {
+  deploy_script = replace(templatefile("${path.module}/templates/deploy.sh.tftpl", {
     deploy_path      = var.deploy_path
     domain           = var.domain
     acme_email       = var.acme_email
     backend_repo_url = var.backend_repo_url
     backend_ref      = var.backend_ref
     manage_firewall  = var.manage_firewall
-  })
+  }), "\r\n", "\n")
 
   # Triggers re-provision when deploy inputs or artifacts change.
   content_fingerprint = sha256(join("|", [

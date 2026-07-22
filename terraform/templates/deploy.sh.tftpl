@@ -10,13 +10,15 @@ MANAGE_FIREWALL="${manage_firewall}"
 COMPOSE_FILE="$${DEPLOY_PATH}/docker-compose.prod.yml"
 
 export DEBIAN_FRONTEND=noninteractive
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="ssh -i /root/.ssh/m-dicail_github -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
 
 log() {
-  echo "[m-dicail-deploy] $$*"
+  echo "[m-dicail-deploy] $*"
 }
 
 require_cmd() {
-  command -v "$$1" >/dev/null 2>&1
+  command -v "$1" >/dev/null 2>&1
 }
 
 install_docker() {
@@ -84,6 +86,7 @@ sync_backend() {
 
   if [[ -d "$${backend_dir}/.git" ]]; then
     log "Updating backend ($${BACKEND_REF})"
+    git -C "$${backend_dir}" remote set-url origin "$${BACKEND_REPO_URL}"
     git -C "$${backend_dir}" fetch --all --tags --prune
     if git -C "$${backend_dir}" rev-parse "refs/tags/$${BACKEND_REF}" >/dev/null 2>&1; then
       log "Checkout tag $${BACKEND_REF} (detached HEAD)"
@@ -179,7 +182,7 @@ health_check() {
   local url="https://$${DOMAIN}/health"
   log "Waiting for $${url}"
   local i
-  for i in $$(seq 1 36); do
+  for i in $(seq 1 36); do
     if curl -fsS --max-time 5 "$${url}" | grep -q ok; then
       log "Health check passed"
       return 0
