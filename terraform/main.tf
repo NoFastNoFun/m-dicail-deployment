@@ -35,18 +35,21 @@ locals {
     backend_repo_url = var.backend_repo_url
     backend_ref      = var.backend_ref
     manage_firewall  = var.manage_firewall
+    ssh_port         = var.ssh_port
   }), "\r\n", "\n")
 
   backend_git_token_file = var.backend_git_token
+  firewall_script        = file("${path.module}/../scripts/configure-host-firewall.sh")
 
   # Bump when deploy semantics change so null_resource always re-runs.
-  deploy_generation = "3-nginx-no-tftpl"
+  deploy_generation = "4-lock-down-ports"
 
   # Triggers re-provision when deploy inputs or artifacts change.
   content_fingerprint = sha256(join("|", [
     local.env_file,
     local.nginx_default,
     local.deploy_script,
+    local.firewall_script,
     local.deploy_generation,
     file("${path.module}/../docker/docker-compose.prod.yml"),
     file("${path.module}/../docker/nginx/nginx.conf"),
@@ -54,6 +57,7 @@ locals {
     var.backend_ref,
     var.domain,
     var.deploy_path,
+    tostring(var.ssh_port),
     sha256(var.backend_git_token),
   ]))
 }
@@ -80,6 +84,12 @@ resource "local_file" "rendered_backend_git_token" {
   content         = local.backend_git_token_file
   filename        = "${path.module}/.generated/backend-git-token"
   file_permission = "0600"
+}
+
+resource "local_file" "rendered_firewall_script" {
+  content         = local.firewall_script
+  filename        = "${path.module}/.generated/configure-host-firewall.sh"
+  file_permission = "0755"
 }
 
 resource "null_resource" "deploy" {
@@ -134,11 +144,17 @@ resource "null_resource" "deploy" {
     destination = "${var.deploy_path}/.generated/backend-git-token"
   }
 
+  provisioner "file" {
+    source      = local_file.rendered_firewall_script.filename
+    destination = "${var.deploy_path}/.generated/configure-host-firewall.sh"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "chmod 600 ${var.deploy_path}/.env",
       "chmod 600 ${var.deploy_path}/.generated/backend-git-token",
       "chmod 755 ${var.deploy_path}/.generated/deploy.sh",
+      "chmod 755 ${var.deploy_path}/.generated/configure-host-firewall.sh",
       "if grep -nE 'upstream_|[$][$]' ${var.deploy_path}/nginx/conf.d/default.conf; then echo 'REFUSING broken nginx config' >&2; exit 1; fi",
       "echo '[m-dicail-deploy] nginx site config (head):' && sed -n '1,45p' ${var.deploy_path}/nginx/conf.d/default.conf",
       "sudo ${var.deploy_path}/.generated/deploy.sh",
@@ -150,5 +166,6 @@ resource "null_resource" "deploy" {
     local_file.rendered_env,
     local_file.rendered_deploy_script,
     local_file.rendered_backend_git_token,
+    local_file.rendered_firewall_script,
   ]
 }

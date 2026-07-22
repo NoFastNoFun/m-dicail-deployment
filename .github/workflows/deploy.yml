@@ -110,6 +110,10 @@ jobs:
             "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/nginx/nginx.conf"
 
           scp -P "${VPS_PORT}" \
+            scripts/configure-host-firewall.sh \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/configure-host-firewall.sh"
+
+          scp -P "${VPS_PORT}" \
             scripts/deploy-backend-tag.sh \
             "${VPS_USER}@${VPS_HOST}:/tmp/deploy-backend-tag.sh"
 
@@ -131,5 +135,7 @@ jobs:
               DEPLOY_PATH='${DEPLOY_PATH}' \
               BACKEND_REPO_URL='${BACKEND_REPO_URL}' \
               DOMAIN='${DOMAIN}' \
+              SSH_PORT='${VPS_PORT}' \
+              MANAGE_FIREWALL='true' \
               bash /tmp/deploy-backend-tag.sh \
             && rm -f /tmp/deploy-backend-tag.sh"

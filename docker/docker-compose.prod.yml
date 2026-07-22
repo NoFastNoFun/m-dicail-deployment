@@ -13,14 +13,16 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    # No host ports. Reachable only on the internal Docker network.
     networks:
-      - internal
+      - db
 
   api:
     build:
       context: ./backend
       args:
         APP: api
+    # expose = Compose network only; never publishes on the host.
     expose:
       - "8000"
     environment:
@@ -35,7 +37,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - internal
+      - edge
+      - db
 
   ai:
     build:
@@ -52,7 +55,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - internal
+      - edge
 
   nginx:
     image: nginx:alpine
@@ -69,11 +72,16 @@ services:
       - ai
     restart: unless-stopped
     networks:
-      - internal
+      - edge
 
 volumes:
   postgres_data:
 
 networks:
-  internal:
+  # nginx <-> api/ai only
+  edge:
     driver: bridge
+  # api <-> postgres only (not attached to nginx)
+  db:
+    driver: bridge
+    internal: true

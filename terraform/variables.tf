@@ -57,7 +57,7 @@ variable "backend_ref" {
 }
 
 variable "manage_firewall" {
-  description = "If true, enable UFW and allow 22/80/443 (Debian/Ubuntu)"
+  description = "If true, enable UFW (default deny; SSH/80/443 only) and DOCKER-USER rules so container ports cannot bypass the firewall"
   type        = bool
   default     = true
 }

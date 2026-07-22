@@ -42,6 +42,7 @@ m-dicail-deployment/
 │   ├── docker-compose.prod.yml   # prod stack (Postgres not published)
 │   └── nginx/                    # base nginx.conf; site conf rendered by Terraform
 ├── scripts/
+│   ├── configure-host-firewall.sh  # UFW + DOCKER-USER lockdown (80/443/SSH only)
 │   └── deploy-backend-tag.sh     # VPS tag checkout + compose rebuild (used by Actions)
 ├── terraform/
 │   ├── main.tf                   # SSH provisioners + deploy
@@ -83,11 +84,11 @@ Useful outputs after apply:
 ## What apply does
 
 1. Installs Docker Engine + Compose plugin (and Certbot) if missing.
-2. Optionally enables UFW for ports 22, 80, and 443 (`manage_firewall`).
+2. Locks down the host firewall (`manage_firewall`): UFW default-deny with only SSH/80/443, plus DOCKER-USER iptables rules so published container ports cannot bypass UFW. Deploy fails if 5432/8000/8001 are still listening publicly.
 3. Syncs Compose, nginx, and `.env` to `deploy_path`.
 4. Clones or updates `m-dicail-backend` at `backend_ref`.
 5. Obtains a Let's Encrypt cert for `medicail.nf2.dev` via Certbot **standalone** (port 80 must be free for the first issue).
-6. Runs `docker compose up -d --build`.
+6. Runs `docker compose up -d --build` (Postgres on an internal Docker network; API/AI only on the Compose network — not host-published).
 7. Installs a daily renew cron that stops nginx briefly, renews, then starts nginx again.
 8. Smoke-checks `https://medicail.nf2.dev/health`.
 
@@ -214,6 +215,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## Notes
 
-- Postgres is **not** published on the host in production (Compose internal network only).
-- Local/dev nginx in `m-dicail-backend` keeps HTTP→HTTPS redirect commented out; production redirect lives in this deployment package.
+- Postgres is **not** published on the host in production (Compose `db` network is `internal: true`). API/AI use `expose` only — nginx is the sole public entry on 80/443.
+- Local/dev `m-dicail-backend/docker-compose.yml` still publishes `5432` for local work; never run that compose file on the VPS.
+- Host firewall: keep `manage_firewall = true` (default). Docker bypasses UFW INPUT for published ports; this deploy installs DOCKER-USER rules so only 80/443 stay reachable that way.
 - First certificate issuance needs the Cloudflare A record already pointing at the VPS and port 80 reachable (use grey cloud for that step).

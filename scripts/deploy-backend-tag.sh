@@ -13,6 +13,9 @@ BACKEND_TAG="${BACKEND_TAG:-}"
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"
 BACKEND_DIR="${DEPLOY_PATH}/backend"
 TOKEN_FILE="${DEPLOY_PATH}/.generated/backend-git-token"
+FIREWALL_SCRIPT="${DEPLOY_PATH}/.generated/configure-host-firewall.sh"
+MANAGE_FIREWALL="${MANAGE_FIREWALL:-true}"
+SSH_PORT="${SSH_PORT:-22}"
 
 # Never use SSH for GitHub on the VPS (avoids host-key prompts / deploy keys).
 unset GIT_SSH_COMMAND || true
@@ -135,7 +138,37 @@ sync_backend_tag() {
 start_stack() {
   log "Building and starting Docker Compose stack"
   cd "${DEPLOY_PATH}"
-  docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans
+
+  docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate
+
+  if [[ -x /usr/local/sbin/m-dicail-docker-user-fw ]]; then
+    /usr/local/sbin/m-dicail-docker-user-fw || true
+  fi
+  if [[ -f "${FIREWALL_SCRIPT}" ]]; then
+    chmod 755 "${FIREWALL_SCRIPT}"
+    ASSERT_ONLY=true bash "${FIREWALL_SCRIPT}"
+  fi
+}
+
+stop_insecure_published_stacks() {
+  local id name ports
+  while IFS=$'\t' read -r id name ports; do
+    [[ -n "${id}" ]] || continue
+    if echo "${ports}" | grep -Eq '0\.0\.0\.0:(5432|8000|8001)->|:::(5432|8000|8001)->'; then
+      log "Stopping container with public app/db ports: ${name} (${ports})"
+      docker stop "${id}" >/dev/null 2>&1 || true
+      docker rm "${id}" >/dev/null 2>&1 || true
+    fi
+  done < <(docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null || true)
+}
+
+configure_firewall() {
+  if [[ ! -f "${FIREWALL_SCRIPT}" ]]; then
+    log "WARN: missing ${FIREWALL_SCRIPT}; run terraform apply to install host firewall lockdown"
+    return 0
+  fi
+  chmod 755 "${FIREWALL_SCRIPT}"
+  env MANAGE_FIREWALL="${MANAGE_FIREWALL}" SSH_PORT="${SSH_PORT}" bash "${FIREWALL_SCRIPT}"
 }
 
 health_check() {
@@ -165,6 +198,8 @@ main() {
   [[ -n "${tag}" ]] || die "BACKEND_TAG is empty after normalization"
 
   require_bootstrap
+  stop_insecure_published_stacks
+  configure_firewall
   sync_backend_tag "${tag}"
   start_stack
   health_check
