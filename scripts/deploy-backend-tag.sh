@@ -39,10 +39,15 @@ require_root() {
 }
 
 require_bootstrap() {
-  [[ -f "${COMPOSE_FILE}" ]] || die "missing ${COMPOSE_FILE}; run terraform apply first"
-  [[ -f "${DEPLOY_PATH}/.env" ]] || die "missing ${DEPLOY_PATH}/.env; run terraform apply first"
+  mkdir -p "${DEPLOY_PATH}"
+
+  [[ -f "${COMPOSE_FILE}" ]] || die "missing ${COMPOSE_FILE}; GitHub Actions should sync it from the deployment repo, or run terraform apply once"
+  [[ -f "${DEPLOY_PATH}/.env" ]] || die "missing ${DEPLOY_PATH}/.env; bootstrap the VPS once with: cd terraform && terraform apply"
+  [[ -f "${DEPLOY_PATH}/nginx/nginx.conf" ]] || log "WARN: missing ${DEPLOY_PATH}/nginx/nginx.conf (nginx may fail until terraform apply or Actions sync)"
+  [[ -f "${DEPLOY_PATH}/nginx/conf.d/default.conf" ]] || die "missing ${DEPLOY_PATH}/nginx/conf.d/default.conf; bootstrap the VPS once with terraform apply (TLS site config)"
+
   require_cmd docker
-  docker compose version >/dev/null 2>&1 || die "docker compose plugin required"
+  docker compose version >/dev/null 2>&1 || die "docker compose plugin required (install via terraform apply or install Docker on the VPS)"
   require_cmd git
   require_cmd curl
 }

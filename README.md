@@ -175,7 +175,7 @@ If the backend is private, the VPS still needs its **own** clone credentials (de
 4. Watch the job; it fails immediately if the tag is missing on the backend repo.
 5. Confirm `https://medicail.nf2.dev/health`.
 
-The workflow copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, runs `docker compose up -d --build`, and smoke-checks health. It does not re-run Terraform, Certbot, or firewall setup.
+The workflow syncs `docker-compose.prod.yml` and `nginx/nginx.conf` from this repo, copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, runs `docker compose up -d --build`, and smoke-checks health. It does not create `.env`, issue TLS certificates, or install Docker — those still come from the initial Terraform bootstrap.
 
 ### Non-goals
 

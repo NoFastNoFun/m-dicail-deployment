@@ -95,8 +95,20 @@ jobs:
           echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
           echo "SSH_AGENT_PID=${SSH_AGENT_PID}" >> "$GITHUB_ENV"
 
-      - name: Copy deploy script to VPS
+      - name: Sync stack files and deploy script to VPS
         run: |
+          set -euo pipefail
+          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+            "sudo mkdir -p '${DEPLOY_PATH}/nginx/conf.d' '${DEPLOY_PATH}/.generated' && sudo chown -R '${VPS_USER}:${VPS_USER}' '${DEPLOY_PATH}'"
+
+          scp -P "${VPS_PORT}" \
+            docker/docker-compose.prod.yml \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/docker-compose.prod.yml"
+
+          scp -P "${VPS_PORT}" \
+            docker/nginx/nginx.conf \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/nginx/nginx.conf"
+
           scp -P "${VPS_PORT}" \
             scripts/deploy-backend-tag.sh \
             "${VPS_USER}@${VPS_HOST}:/tmp/deploy-backend-tag.sh"
