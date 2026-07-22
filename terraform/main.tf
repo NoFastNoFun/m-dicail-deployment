@@ -1,0 +1,128 @@
+locals {
+  ssh_private_key = file(pathexpand(var.ssh_private_key_path))
+
+  connection = {
+    type        = "ssh"
+    user        = var.ssh_user
+    private_key = local.ssh_private_key
+    host        = var.ssh_host
+    port        = var.ssh_port
+    timeout     = "5m"
+  }
+
+  env_file = templatefile("${path.module}/templates/env.tftpl", {
+    port                   = var.port
+    ai_port                = var.ai_port
+    secret_key             = var.secret_key
+    postgres_user          = var.postgres_user
+    postgres_password      = var.postgres_password
+    postgres_db            = var.postgres_db
+    ncbi_api_key           = var.ncbi_api_key
+    access_token_ttl       = var.access_token_ttl
+    refresh_token_ttl_days = var.refresh_token_ttl_days
+  })
+
+  nginx_default = templatefile("${path.module}/templates/nginx-default.conf.tftpl", {
+    domain = var.domain
+  })
+
+  deploy_script = templatefile("${path.module}/templates/deploy.sh.tftpl", {
+    deploy_path      = var.deploy_path
+    domain           = var.domain
+    acme_email       = var.acme_email
+    backend_repo_url = var.backend_repo_url
+    backend_ref      = var.backend_ref
+    manage_firewall  = var.manage_firewall
+  })
+
+  # Triggers re-provision when deploy inputs or artifacts change.
+  content_fingerprint = sha256(join("|", [
+    local.env_file,
+    local.nginx_default,
+    local.deploy_script,
+    file("${path.module}/../docker/docker-compose.prod.yml"),
+    file("${path.module}/../docker/nginx/nginx.conf"),
+    var.backend_repo_url,
+    var.backend_ref,
+    var.domain,
+    var.deploy_path,
+  ]))
+}
+
+resource "local_file" "rendered_nginx_default" {
+  content         = local.nginx_default
+  filename        = "${path.module}/.generated/nginx-default.conf"
+  file_permission = "0644"
+}
+
+resource "local_file" "rendered_env" {
+  content         = local.env_file
+  filename        = "${path.module}/.generated/env"
+  file_permission = "0600"
+}
+
+resource "local_file" "rendered_deploy_script" {
+  content         = local.deploy_script
+  filename        = "${path.module}/.generated/deploy.sh"
+  file_permission = "0755"
+}
+
+resource "null_resource" "deploy" {
+  triggers = {
+    fingerprint = local.content_fingerprint
+  }
+
+  connection {
+    type        = local.connection.type
+    user        = local.connection.user
+    private_key = local.connection.private_key
+    host        = local.connection.host
+    port        = local.connection.port
+    timeout     = local.connection.timeout
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "mkdir -p ${var.deploy_path}/nginx/conf.d ${var.deploy_path}/.generated",
+    ]
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/../docker/docker-compose.prod.yml"
+    destination = "${var.deploy_path}/docker-compose.prod.yml"
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/../docker/nginx/nginx.conf"
+    destination = "${var.deploy_path}/nginx/nginx.conf"
+  }
+
+  provisioner "file" {
+    source      = local_file.rendered_nginx_default.filename
+    destination = "${var.deploy_path}/nginx/conf.d/default.conf"
+  }
+
+  provisioner "file" {
+    source      = local_file.rendered_env.filename
+    destination = "${var.deploy_path}/.env"
+  }
+
+  provisioner "file" {
+    source      = local_file.rendered_deploy_script.filename
+    destination = "${var.deploy_path}/.generated/deploy.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod 600 ${var.deploy_path}/.env",
+      "chmod 755 ${var.deploy_path}/.generated/deploy.sh",
+      "sudo ${var.deploy_path}/.generated/deploy.sh",
+    ]
+  }
+
+  depends_on = [
+    local_file.rendered_nginx_default,
+    local_file.rendered_env,
+    local_file.rendered_deploy_script,
+  ]
+}

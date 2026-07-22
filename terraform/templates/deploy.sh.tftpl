@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEPLOY_PATH="${deploy_path}"
+DOMAIN="${domain}"
+ACME_EMAIL="${acme_email}"
+BACKEND_REPO_URL="${backend_repo_url}"
+BACKEND_REF="${backend_ref}"
+MANAGE_FIREWALL="${manage_firewall}"
+COMPOSE_FILE="$${DEPLOY_PATH}/docker-compose.prod.yml"
+
+export DEBIAN_FRONTEND=noninteractive
+
+log() {
+  echo "[m-dicail-deploy] $$*"
+}
+
+require_cmd() {
+  command -v "$$1" >/dev/null 2>&1
+}
+
+install_docker() {
+  if require_cmd docker && docker compose version >/dev/null 2>&1; then
+    log "Docker and Compose already installed"
+    return
+  fi
+
+  log "Installing Docker Engine + Compose plugin"
+  if require_cmd apt-get; then
+    apt-get update -y
+    apt-get install -y ca-certificates curl
+  elif require_cmd dnf; then
+    dnf install -y curl
+  fi
+
+  curl -fsSL https://get.docker.com | sh
+  systemctl enable --now docker || true
+
+  if ! docker compose version >/dev/null 2>&1; then
+    log "Docker Compose plugin missing after install"
+    exit 1
+  fi
+}
+
+install_certbot() {
+  if require_cmd certbot; then
+    log "Certbot already installed"
+    return
+  fi
+
+  log "Installing Certbot"
+  if require_cmd apt-get; then
+    apt-get update -y
+    apt-get install -y certbot
+  elif require_cmd dnf; then
+    dnf install -y certbot
+  else
+    log "Install certbot manually, then re-run terraform apply"
+    exit 1
+  fi
+}
+
+configure_firewall() {
+  if [[ "$${MANAGE_FIREWALL}" != "true" ]]; then
+    log "Skipping firewall management"
+    return
+  fi
+
+  if ! require_cmd ufw; then
+    log "ufw not found; skipping firewall"
+    return
+  fi
+
+  log "Configuring UFW (22/80/443)"
+  ufw allow OpenSSH || ufw allow 22/tcp || true
+  ufw allow 80/tcp || true
+  ufw allow 443/tcp || true
+  ufw --force enable || true
+}
+
+sync_backend() {
+  local backend_dir="$${DEPLOY_PATH}/backend"
+  mkdir -p "$${DEPLOY_PATH}"
+
+  if [[ -d "$${backend_dir}/.git" ]]; then
+    log "Updating backend ($${BACKEND_REF})"
+    git -C "$${backend_dir}" fetch --all --tags --prune
+    git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
+    git -C "$${backend_dir}" pull --ff-only origin "$${BACKEND_REF}" || \
+      git -C "$${backend_dir}" reset --hard "$${BACKEND_REF}"
+  else
+    log "Cloning backend from $${BACKEND_REPO_URL}"
+    rm -rf "$${backend_dir}"
+    if ! require_cmd git; then
+      if require_cmd apt-get; then
+        apt-get update -y && apt-get install -y git
+      elif require_cmd dnf; then
+        dnf install -y git
+      fi
+    fi
+    git clone --branch "$${BACKEND_REF}" --depth 1 "$${BACKEND_REPO_URL}" "$${backend_dir}" \
+      || git clone "$${BACKEND_REPO_URL}" "$${backend_dir}" && git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
+  fi
+}
+
+obtain_certificate() {
+  mkdir -p /var/www/certbot /etc/letsencrypt
+
+  if [[ -f "/etc/letsencrypt/live/$${DOMAIN}/fullchain.pem" ]]; then
+    log "TLS certificate already present for $${DOMAIN}"
+    return
+  fi
+
+  log "Obtaining Let's Encrypt certificate for $${DOMAIN} (standalone)"
+  if [[ -f "$${COMPOSE_FILE}" ]]; then
+    (cd "$${DEPLOY_PATH}" && docker compose -f "$${COMPOSE_FILE}" stop nginx) || true
+  fi
+
+  # Free port 80 if something else is listening
+  if require_cmd ss && ss -ltn | grep -q ':80 '; then
+    log "Port 80 is in use; attempting to stop conflicting listeners for Certbot"
+    systemctl stop nginx 2>/dev/null || true
+    systemctl stop apache2 2>/dev/null || true
+  fi
+
+  certbot certonly \
+    --standalone \
+    --non-interactive \
+    --agree-tos \
+    --email "$${ACME_EMAIL}" \
+    -d "$${DOMAIN}" \
+    --keep-until-expiring
+}
+
+install_renewal_hook() {
+  local renew_script="/usr/local/bin/m-dicail-certbot-renew"
+  cat > "$${renew_script}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+DEPLOY_PATH="$${DEPLOY_PATH}"
+COMPOSE_FILE="$${COMPOSE_FILE}"
+cd "$${DEPLOY_PATH}"
+certbot renew --quiet \
+  --pre-hook "docker compose -f $${COMPOSE_FILE} stop nginx" \
+  --post-hook "docker compose -f $${COMPOSE_FILE} start nginx"
+EOF
+  chmod 755 "$${renew_script}"
+
+  # Deploy hook also reloads nginx if certbot ran without our wrapper
+  local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
+  mkdir -p "$${hook_dir}"
+  cat > "$${hook_dir}/m-dicail-reload-nginx.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$${DEPLOY_PATH}"
+docker compose -f "$${COMPOSE_FILE}" exec -T nginx nginx -s reload \
+  || docker compose -f "$${COMPOSE_FILE}" restart nginx
+EOF
+  chmod 755 "$${hook_dir}/m-dicail-reload-nginx.sh"
+
+  echo "0 3 * * * root $${renew_script}" > /etc/cron.d/m-dicail-certbot
+  chmod 644 /etc/cron.d/m-dicail-certbot
+  systemctl enable --now certbot.timer 2>/dev/null || true
+}
+
+start_stack() {
+  log "Building and starting Docker Compose stack"
+  cd "$${DEPLOY_PATH}"
+  docker compose -f "$${COMPOSE_FILE}" up -d --build --remove-orphans
+}
+
+health_check() {
+  local url="https://$${DOMAIN}/health"
+  log "Waiting for $${url}"
+  local i
+  for i in $$(seq 1 36); do
+    if curl -fsS --max-time 5 "$${url}" | grep -q ok; then
+      log "Health check passed"
+      return 0
+    fi
+    sleep 5
+  done
+  log "Health check failed after retries"
+  docker compose -f "$${COMPOSE_FILE}" ps || true
+  docker compose -f "$${COMPOSE_FILE}" logs --tail=80 || true
+  exit 1
+}
+
+main() {
+  if [[ "$${EUID}" -ne 0 ]]; then
+    log "This script expects root (or passwordless sudo as root). Re-run via sudo."
+    exit 1
+  fi
+
+  install_docker
+  install_certbot
+  configure_firewall
+  sync_backend
+  obtain_certificate
+  start_stack
+  install_renewal_hook
+  health_check
+  log "Deploy complete"
+}
+
+main "$@"

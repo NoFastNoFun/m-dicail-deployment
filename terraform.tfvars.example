@@ -1,0 +1,26 @@
+# Copy to terraform/terraform.tfvars (gitignored) and fill in real values.
+# DNS: point an A (and optional AAAA) record for `domain` at `ssh_host` before apply.
+
+ssh_host             = "203.0.113.10"
+ssh_user             = "root"
+ssh_port             = 22
+ssh_private_key_path = "~/.ssh/id_ed25519"
+
+domain     = "api.example.com"
+acme_email = "ops@example.com"
+
+# Optional overrides
+# deploy_path      = "/opt/m-dicail"
+# backend_repo_url = "https://github.com/NoFastNoFun/m-dicail-backend.git"
+# backend_ref      = "main"
+# manage_firewall  = true
+
+secret_key        = "change-me-to-a-long-random-string"
+postgres_user     = "mdicail"
+postgres_password = "change-me-strong-password"
+postgres_db       = "mdicail"
+
+# Optional
+ncbi_api_key            = ""
+access_token_ttl        = "1h"
+refresh_token_ttl_days  = 7

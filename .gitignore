@@ -1,0 +1,31 @@
+# Terraform
+**/.terraform/
+**/terraform/.generated/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/crash.log
+**/crash.*.log
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
+**/.terraformrc
+**/terraform.rc
+**/terraform.tfvars
+**/*.auto.tfvars
+**/*.auto.tfvars.json
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+!*.example
+
+# OS / editor
+.DS_Store
+*.swp
+*~

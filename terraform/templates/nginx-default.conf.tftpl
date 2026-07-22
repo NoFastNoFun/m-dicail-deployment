@@ -1,0 +1,86 @@
+# Production nginx — ACME webroot + HTTP→HTTPS redirect.
+# Domain is injected by Terraform (${domain}).
+# Local/dev redirect remains disabled in m-dicail-backend/nginx.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$$host$$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${domain};
+
+    ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    resolver 127.0.0.11 ipv6=off valid=10s;
+
+    location /health {
+        set $$upstream_api api;
+        proxy_pass http://$$upstream_api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+    }
+
+    location /api {
+        set $$upstream_api api;
+        proxy_pass http://$$upstream_api:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+    }
+
+    location /docs {
+        set $$upstream_api api;
+        proxy_pass http://$$upstream_api:8000/docs;
+        proxy_http_version 1.1;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+    }
+
+    location = /ai {
+        return 301 /ai/;
+    }
+
+    location /ai/docs {
+        set $$upstream_ai ai;
+        proxy_pass http://$$upstream_ai:8001/docs;
+        proxy_http_version 1.1;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+    }
+
+    location /ai/ {
+        set $$upstream_ai ai;
+        proxy_pass http://$$upstream_ai:8001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $$scheme;
+    }
+}
