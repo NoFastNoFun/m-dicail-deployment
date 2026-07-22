@@ -21,8 +21,9 @@ variable "ssh_private_key_path" {
 }
 
 variable "domain" {
-  description = "Public domain pointing at the VPS (A/AAAA record required for Let's Encrypt)"
+  description = "Public domain pointing at the VPS via Cloudflare DNS (Let's Encrypt HTTP-01)"
   type        = string
+  default     = "medicail.nf2.dev"
 }
 
 variable "acme_email" {

@@ -1,12 +1,12 @@
 # Copy to terraform/terraform.tfvars (gitignored) and fill in real values.
-# DNS: point an A (and optional AAAA) record for `domain` at `ssh_host` before apply.
+# Cloudflare DNS: A record medicail.nf2.dev -> ssh_host (see README).
 
 ssh_host             = "203.0.113.10"
 ssh_user             = "root"
 ssh_port             = 22
 ssh_private_key_path = "~/.ssh/id_ed25519"
 
-domain     = "api.example.com"
+domain     = "medicail.nf2.dev"
 acme_email = "ops@example.com"
 
 # Optional overrides
@@ -21,6 +21,6 @@ postgres_password = "change-me-strong-password"
 postgres_db       = "mdicail"
 
 # Optional
-ncbi_api_key            = ""
-access_token_ttl        = "1h"
-refresh_token_ttl_days  = 7
+ncbi_api_key           = ""
+access_token_ttl       = "1h"
+refresh_token_ttl_days = 7
