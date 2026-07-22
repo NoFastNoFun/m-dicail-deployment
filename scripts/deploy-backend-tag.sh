@@ -67,17 +67,19 @@ https_github_url() {
   esac
 }
 
-git_with_auth() {
-  local token
+github_authed_url() {
+  local clean token hostpath
+  clean="$(https_github_url "$1")"
   token="$(read_backend_token)"
   if [[ -z "${token}" ]]; then
-    die "BACKEND_GIT_TOKEN or ${TOKEN_FILE} required for HTTPS clone/fetch"
+    die "empty GitHub PAT. Set backend_git_token (terraform) or BACKEND_READ_TOKEN (Actions). File: ${TOKEN_FILE}"
   fi
-  git \
-    -c "url.https://github.com/.insteadOf=git@github.com:" \
-    -c "url.https://github.com/.insteadOf=ssh://git@github.com/" \
-    -c "http.extraHeader=Authorization: Bearer ${token}" \
-    "$@"
+  hostpath="${clean#https://}"
+  hostpath="${hostpath#http://}"
+  if [[ "${hostpath}" == *@* ]]; then
+    hostpath="${hostpath#*@}"
+  fi
+  printf 'https://x-access-token:%s@%s' "${token}" "${hostpath}"
 }
 
 require_bootstrap() {
@@ -96,21 +98,27 @@ require_bootstrap() {
 
 sync_backend_tag() {
   local tag="$1"
+  local clean_url auth_url
 
   export GIT_TERMINAL_PROMPT=0
-  BACKEND_REPO_URL="$(https_github_url "${BACKEND_REPO_URL}")"
-  log "Backend git over HTTPS (PAT Bearer): ${BACKEND_REPO_URL}"
+  clean_url="$(https_github_url "${BACKEND_REPO_URL}")"
+  BACKEND_REPO_URL="${clean_url}"
+  auth_url="$(github_authed_url "${clean_url}")"
+  log "Backend git over HTTPS + PAT (x-access-token): ${BACKEND_REPO_URL}"
 
   if [[ -d "${BACKEND_DIR}/.git" ]]; then
     log "Fetching tags in ${BACKEND_DIR}"
-    git -C "${BACKEND_DIR}" remote set-url origin "${BACKEND_REPO_URL}"
-    git_with_auth -C "${BACKEND_DIR}" fetch --all --tags --prune
+    git -C "${BACKEND_DIR}" remote set-url origin "${auth_url}"
+    git -C "${BACKEND_DIR}" -c credential.helper= -c core.askPass= fetch --all --tags --prune
+    git -C "${BACKEND_DIR}" remote set-url origin "${clean_url}"
   else
     log "Cloning backend from ${BACKEND_REPO_URL}"
     rm -rf "${BACKEND_DIR}"
-    git_with_auth clone "${BACKEND_REPO_URL}" "${BACKEND_DIR}"
-    git -C "${BACKEND_DIR}" remote set-url origin "${BACKEND_REPO_URL}"
-    git_with_auth -C "${BACKEND_DIR}" fetch --all --tags --prune
+    git -c credential.helper= -c core.askPass= clone "${auth_url}" "${BACKEND_DIR}"
+    git -C "${BACKEND_DIR}" remote set-url origin "${clean_url}"
+    git -C "${BACKEND_DIR}" remote set-url origin "${auth_url}"
+    git -C "${BACKEND_DIR}" -c credential.helper= -c core.askPass= fetch --all --tags --prune
+    git -C "${BACKEND_DIR}" remote set-url origin "${clean_url}"
   fi
 
   if ! git -C "${BACKEND_DIR}" rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
