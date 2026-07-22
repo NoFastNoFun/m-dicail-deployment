@@ -47,7 +47,7 @@ m-dicail-deployment/
 │   ├── main.tf                   # SSH provisioners + deploy
 │   ├── variables.tf
 │   ├── outputs.tf
-│   └── templates/                # .env, deploy.sh, nginx site conf
+│   └── templates/                # .env, deploy.sh, nginx-default.conf (__DOMAIN__)
 └── terraform.tfvars.example
 ```
 

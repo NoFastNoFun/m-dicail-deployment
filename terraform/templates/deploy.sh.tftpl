@@ -246,7 +246,8 @@ EOF
 start_stack() {
   log "Building and starting Docker Compose stack"
   cd "$${DEPLOY_PATH}"
-  docker compose -f "$${COMPOSE_FILE}" up -d --build --remove-orphans
+  # Force nginx recreate so a stale container cannot keep an old bind-mount view.
+  docker compose -f "$${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate
 }
 
 health_check() {
