@@ -37,6 +37,9 @@ install_docker_user_helper() {
   cat > "${RULES_HELPER}" <<'EOF'
 #!/usr/bin/env bash
 # Re-apply DOCKER-USER policy. Safe to run repeatedly (e.g. after docker restart).
+# Goal: block accidental WAN access to Postgres/API/AI ports if published.
+# Do NOT blanket-DROP forwarded traffic — that breaks Docker build outbound
+# (DNS :53 and package registries) and container egress.
 set -euo pipefail
 
 if ! command -v iptables >/dev/null 2>&1; then
@@ -52,13 +55,17 @@ while true; do
   iptables -D DOCKER-USER "${line}" || break
 done
 
-# Order matters: first match wins once we insert at position 1 bottom-up.
-iptables -I DOCKER-USER 1 -m comment --comment "m-dicail-fw" -j DROP
-iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -m comment --comment "m-dicail-fw" -j RETURN
-iptables -I DOCKER-USER 1 -m conntrack --ctorigdstport 443 --ctdir ORIGINAL -m comment --comment "m-dicail-fw" -j RETURN 2>/dev/null \
-  || iptables -I DOCKER-USER 1 -m conntrack --ctorigdstport 443 -m comment --comment "m-dicail-fw" -j RETURN
-iptables -I DOCKER-USER 1 -m conntrack --ctorigdstport 80 --ctdir ORIGINAL -m comment --comment "m-dicail-fw" -j RETURN 2>/dev/null \
-  || iptables -I DOCKER-USER 1 -m conntrack --ctorigdstport 80 -m comment --comment "m-dicail-fw" -j RETURN
+drop_orig_dst_tcp() {
+  local port="$1"
+  iptables -I DOCKER-USER 1 -p tcp -m conntrack --ctorigdstport "${port}" --ctdir ORIGINAL -m comment --comment "m-dicail-fw" -j DROP 2>/dev/null \
+    || iptables -I DOCKER-USER 1 -p tcp -m conntrack --ctorigdstport "${port}" -m comment --comment "m-dicail-fw" -j DROP
+}
+
+# Insert at position 1 bottom-up so final order is:
+# ESTABLISHED/RELATED, lo, then DROP WAN hits to 5432/8000/8001.
+drop_orig_dst_tcp 8001
+drop_orig_dst_tcp 8000
+drop_orig_dst_tcp 5432
 iptables -I DOCKER-USER 1 -i lo -m comment --comment "m-dicail-fw" -j RETURN
 iptables -I DOCKER-USER 1 -m conntrack --ctstate RELATED,ESTABLISHED -m comment --comment "m-dicail-fw" -j RETURN
 EOF
@@ -66,7 +73,7 @@ EOF
 
   cat > /etc/systemd/system/m-dicail-docker-fw.service <<EOF
 [Unit]
-Description=m-dicail DOCKER-USER firewall (block published ports except 80/443)
+Description=m-dicail DOCKER-USER firewall (block WAN access to 5432/8000/8001)
 After=docker.service network-online.target
 Wants=network-online.target
 PartOf=docker.service

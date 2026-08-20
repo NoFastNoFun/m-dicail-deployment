@@ -47,7 +47,7 @@ locals {
   ), "\r", "")
 
   # Bump when deploy semantics change so null_resource always re-runs.
-  deploy_generation = "5-firewall-lf"
+  deploy_generation = "6-docker-user-egress"
 
   # Triggers re-provision when deploy inputs or artifacts change.
   content_fingerprint = sha256(join("|", [
