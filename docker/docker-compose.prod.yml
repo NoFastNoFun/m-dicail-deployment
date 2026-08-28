@@ -30,8 +30,18 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - NCBI_API_KEY=${NCBI_API_KEY}
+      - NCBI_EMAIL=${NCBI_EMAIL:-}
       - ACCESS_TOKEN_TTL=${ACCESS_TOKEN_TTL:-1h}
       - REFRESH_TOKEN_TTL_DAYS=${REFRESH_TOKEN_TTL_DAYS:-7}
+      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Medicail}
+      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-}
     depends_on:
       postgres:
         condition: service_healthy

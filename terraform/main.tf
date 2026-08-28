@@ -18,8 +18,18 @@ locals {
     postgres_password      = var.postgres_password
     postgres_db            = var.postgres_db
     ncbi_api_key           = var.ncbi_api_key
+    ncbi_email             = var.ncbi_email
     access_token_ttl       = var.access_token_ttl
     refresh_token_ttl_days = var.refresh_token_ttl_days
+    app_public_url         = "https://${var.domain}"
+    smtp_host              = var.smtp_host
+    smtp_port              = var.smtp_port
+    smtp_user              = var.smtp_user
+    smtp_pass              = var.smtp_pass
+    smtp_from              = var.smtp_from
+    webauthn_rp_id         = var.domain
+    webauthn_rp_name       = var.webauthn_rp_name
+    webauthn_origin        = "https://${var.domain}"
   })
 
   nginx_default = replace(

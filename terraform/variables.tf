@@ -99,6 +99,12 @@ variable "ncbi_api_key" {
   sensitive   = true
 }
 
+variable "ncbi_email" {
+  description = "Optional NCBI contact email for E-utilities requests"
+  type        = string
+  default     = ""
+}
+
 variable "access_token_ttl" {
   type    = string
   default = "1h"
@@ -107,4 +113,42 @@ variable "access_token_ttl" {
 variable "refresh_token_ttl_days" {
   type    = number
   default = 7
+}
+
+variable "smtp_host" {
+  description = "Outbound SMTP host (e.g. smtp.protonmail.ch). Leave empty to disable mail."
+  type        = string
+  default     = "smtp.protonmail.ch"
+}
+
+variable "smtp_port" {
+  description = "Outbound SMTP port (587 for Proton STARTTLS)"
+  type        = number
+  default     = 587
+}
+
+variable "smtp_user" {
+  description = "SMTP username (Proton address or Bridge user)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "smtp_pass" {
+  description = "SMTP password or Proton SMTP token"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "smtp_from" {
+  description = "From header for outbound mail (e.g. Medicail <noreply@proton.me>)"
+  type        = string
+  default     = ""
+}
+
+variable "webauthn_rp_name" {
+  description = "WebAuthn relying party display name"
+  type        = string
+  default     = "Medicail"
 }

@@ -37,7 +37,9 @@ After apply, the API is at `https://medicail.nf2.dev`.
 ```
 m-dicail-deployment/
 ├── .github/workflows/
-│   └── deploy.yml                # manual tag deploy (workflow_dispatch)
+│   ├── deploy.yml                # manual tag deploy (workflow_dispatch)
+│   ├── sync-env.yml              # push .env to VPS from GitHub Secrets
+│   └── terraform-apply.yml       # bootstrap / infra re-sync without local tfvars
 ├── docker/
 │   ├── docker-compose.prod.yml   # prod stack (Postgres not published)
 │   └── nginx/                    # base nginx.conf; site conf rendered by Terraform
@@ -185,11 +187,74 @@ The workflow syncs `docker-compose.prod.yml` and `nginx/nginx.conf` from this re
 - No image registry; images are still built on the VPS from the tagged source.
 - Terraform remains for bootstrap / infra re-sync only; day-to-day releases use this Actions workflow.
 
-## Secrets (Terraform)
+## Secrets (Terraform and GitHub Actions)
 
-- Do **not** commit `terraform/terraform.tfvars` or Terraform state if they contain secrets.
-- Prefer strong random values for `secret_key` and `postgres_password`.
-- You can also pass sensitive values via environment variables, e.g. `TF_VAR_secret_key`, `TF_VAR_postgres_password`.
+**Never commit real values to git.** Only placeholders live in `terraform.tfvars.example`. Runtime secrets end up on the VPS in `/opt/m-dicail/.env` (mode `600`), not in the repo.
+
+### Where secrets live
+
+| Layer | What | Who reads it |
+|-------|------|--------------|
+| GitHub **Secrets** | Passwords, tokens, keys | Actions workflows only |
+| GitHub **Variables** | Domain, ports, non-secret config | Actions workflows |
+| VPS `/opt/m-dicail/.env` | Full runtime env for Docker | API container at boot |
+| Local `terraform.tfvars` | Optional; gitignored | You, if you run Terraform locally |
+
+The **Deploy backend tag** workflow does **not** read app secrets. It reuses the existing `.env` on the VPS. Tag deploys alone cannot set SMTP or `SECRET_KEY`.
+
+### If you do not have secrets locally (recommended)
+
+Use GitHub Actions on `m-dicail-deployment`:
+
+1. **First-time VPS bootstrap** — Actions → **Terraform apply** (installs Docker, TLS, clones backend, writes `.env`).
+2. **Change secrets later** (SMTP, DB password, etc.) — Actions → **Sync VPS environment** (rewrites `.env`, optionally rebuilds API).
+3. **Release a backend tag** — Actions → **Deploy backend tag** (unchanged).
+
+Configure **Settings → Secrets and variables → Actions** on the deployment repo:
+
+**Secrets (required for bootstrap / env sync)**
+
+| Name | Purpose |
+|------|---------|
+| `VPS_HOST` | VPS IP or hostname |
+| `VPS_SSH_PRIVATE_KEY` | SSH key for Actions → VPS |
+| `VPS_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <VPS_HOST>` (recommended) |
+| `SECRET_KEY` | JWT signing key |
+| `POSTGRES_USER` | Postgres user |
+| `POSTGRES_PASSWORD` | Postgres password |
+| `POSTGRES_DB` | Postgres database name |
+| `BACKEND_READ_TOKEN` | GitHub PAT with `contents:read` on backend repo |
+| `SMTP_USER` | Proton SMTP user (optional; leave empty to disable mail) |
+| `SMTP_PASS` | Proton SMTP token (optional) |
+| `NCBI_API_KEY` | Optional PubMed API key |
+
+**Variables (non-secret defaults)**
+
+| Name | Example | Purpose |
+|------|---------|---------|
+| `DOMAIN` | `medicail.nf2.dev` | Public hostname |
+| `ACME_EMAIL` | `ops@example.com` | Let's Encrypt contact (Terraform apply only) |
+| `DEPLOY_PATH` | `/opt/m-dicail` | Install path on VPS |
+| `BACKEND_REPO_URL` | `https://github.com/.../m-dicail-backend.git` | Backend clone URL |
+| `BACKEND_REF` | `main` | Branch/tag for Terraform bootstrap |
+| `SMTP_HOST` | `smtp.protonmail.ch` | SMTP server |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_FROM` | `Medicail <noreply@proton.me>` | From header |
+| `NCBI_EMAIL` | `ops@example.com` | NCBI contact email |
+| `WEBAUTHN_RP_NAME` | `Medicail` | Passkey display name |
+
+`APP_PUBLIC_URL`, `WEBAUTHN_RP_ID`, and `WEBAUTHN_ORIGIN` are derived from `DOMAIN` automatically.
+
+Optional: `VPS_USER` (default `root`), `VPS_PORT` (default `22`).
+
+### Local Terraform (optional)
+
+If you prefer local bootstrap instead of the **Terraform apply** workflow:
+
+- Copy `terraform.tfvars.example` → `terraform/terraform.tfvars` (gitignored).
+- Or export `TF_VAR_smtp_pass`, `TF_VAR_secret_key`, etc. without a file.
+
+Do **not** commit `terraform.tfvars` or Terraform state files that contain secrets.
 
 ## TLS renewal
 

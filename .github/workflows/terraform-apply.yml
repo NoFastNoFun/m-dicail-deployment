@@ -1,0 +1,106 @@
+name: Terraform apply
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Bootstrap or re-sync VPS via Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      TF_VAR_ssh_host: ${{ secrets.VPS_HOST }}
+      TF_VAR_ssh_user: ${{ secrets.VPS_USER || 'root' }}
+      TF_VAR_ssh_port: ${{ secrets.VPS_PORT || '22' }}
+      TF_VAR_ssh_private_key_path: /tmp/terraform-ssh-key
+      TF_VAR_domain: ${{ vars.DOMAIN || 'medicail.nf2.dev' }}
+      TF_VAR_acme_email: ${{ vars.ACME_EMAIL }}
+      TF_VAR_deploy_path: ${{ vars.DEPLOY_PATH || '/opt/m-dicail' }}
+      TF_VAR_backend_repo_url: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
+      TF_VAR_backend_ref: ${{ vars.BACKEND_REF || 'main' }}
+      TF_VAR_backend_git_token: ${{ secrets.BACKEND_READ_TOKEN }}
+      TF_VAR_port: ${{ vars.PORT || '8000' }}
+      TF_VAR_ai_port: ${{ vars.AI_PORT || '8001' }}
+      TF_VAR_secret_key: ${{ secrets.SECRET_KEY }}
+      TF_VAR_postgres_user: ${{ secrets.POSTGRES_USER }}
+      TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+      TF_VAR_postgres_db: ${{ secrets.POSTGRES_DB }}
+      TF_VAR_ncbi_api_key: ${{ secrets.NCBI_API_KEY }}
+      TF_VAR_ncbi_email: ${{ vars.NCBI_EMAIL }}
+      TF_VAR_access_token_ttl: ${{ vars.ACCESS_TOKEN_TTL || '1h' }}
+      TF_VAR_refresh_token_ttl_days: ${{ vars.REFRESH_TOKEN_TTL_DAYS || '7' }}
+      TF_VAR_smtp_host: ${{ vars.SMTP_HOST || 'smtp.protonmail.ch' }}
+      TF_VAR_smtp_port: ${{ vars.SMTP_PORT || '587' }}
+      TF_VAR_smtp_user: ${{ secrets.SMTP_USER }}
+      TF_VAR_smtp_pass: ${{ secrets.SMTP_PASS }}
+      TF_VAR_smtp_from: ${{ vars.SMTP_FROM }}
+      TF_VAR_webauthn_rp_name: ${{ vars.WEBAUTHN_RP_NAME || 'Medicail' }}
+
+    steps:
+      - name: Checkout deployment repo
+        uses: actions/checkout@v4
+
+      - name: Require core secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in VPS_HOST ACME_EMAIL SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_READ_TOKEN; do
+            val="${!name:-}"
+            if [ -z "${val}" ]; then
+              echo "::error::Missing ${name} (GitHub secret or variable)"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          BACKEND_READ_TOKEN: ${{ secrets.BACKEND_READ_TOKEN }}
+
+      - name: Write SSH private key for Terraform
+        env:
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VPS_SSH_PRIVATE_KEY}" ]; then
+            echo "::error::Secret VPS_SSH_PRIVATE_KEY is required"
+            exit 1
+          fi
+          printf '%s\n' "${VPS_SSH_PRIVATE_KEY}" > /tmp/terraform-ssh-key
+          chmod 600 /tmp/terraform-ssh-key
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Restore Terraform state
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-state
+          path: terraform
+        continue-on-error: true
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false
+
+      - name: Persist Terraform state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: terraform/terraform.tfstate
+          if-no-files-found: ignore
+          retention-days: 90
