@@ -7,7 +7,7 @@ set -euo pipefail
 
 DEPLOY_PATH="${DEPLOY_PATH:-/opt/m-dicail}"
 BACKEND_REPO_URL="${BACKEND_REPO_URL:-https://github.com/NoFastNoFun/m-dicail-backend.git}"
-DOMAIN="${DOMAIN:-medicail.nf2.dev}"
+DOMAIN="${DOMAIN:-medicail.nf2.tech}"
 BACKEND_TAG="${BACKEND_TAG:-}"
 
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"

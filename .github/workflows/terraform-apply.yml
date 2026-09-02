@@ -18,7 +18,7 @@ jobs:
       TF_VAR_ssh_user: ${{ secrets.VPS_USER || 'root' }}
       TF_VAR_ssh_port: ${{ secrets.VPS_PORT || '22' }}
       TF_VAR_ssh_private_key_path: /tmp/terraform-ssh-key
-      TF_VAR_domain: ${{ vars.DOMAIN || 'medicail.nf2.dev' }}
+      TF_VAR_domain: ${{ vars.DOMAIN || 'medicail.nf2.tech' }}
       TF_VAR_acme_email: ${{ vars.ACME_EMAIL }}
       TF_VAR_deploy_path: ${{ vars.DEPLOY_PATH || '/opt/m-dicail' }}
       TF_VAR_backend_repo_url: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
@@ -34,7 +34,7 @@ jobs:
       TF_VAR_ncbi_email: ${{ vars.NCBI_EMAIL }}
       TF_VAR_access_token_ttl: ${{ vars.ACCESS_TOKEN_TTL || '1h' }}
       TF_VAR_refresh_token_ttl_days: ${{ vars.REFRESH_TOKEN_TTL_DAYS || '7' }}
-      TF_VAR_smtp_host: ${{ vars.SMTP_HOST || 'smtp.protonmail.ch' }}
+      TF_VAR_smtp_host: ${{ vars.SMTP_HOST || 'smtp.proton.me' }}
       TF_VAR_smtp_port: ${{ vars.SMTP_PORT || '587' }}
       TF_VAR_smtp_user: ${{ secrets.SMTP_USER }}
       TF_VAR_smtp_pass: ${{ secrets.SMTP_PASS }}

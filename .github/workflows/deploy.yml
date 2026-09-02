@@ -21,7 +21,7 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER || 'root' }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/m-dicail' }}
-      DOMAIN: ${{ vars.DOMAIN || 'medicail.nf2.dev' }}
+      DOMAIN: ${{ vars.DOMAIN || 'medicail.nf2.tech' }}
       BACKEND_REPO_URL: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
 
     steps:

@@ -1,14 +1,14 @@
 # Copy to terraform/terraform.tfvars (gitignored) and fill in real values.
 # Or skip local tfvars entirely: use GitHub Actions → "Terraform apply" / "Sync VPS environment"
 # with secrets stored in the deployment repo Settings → Secrets and variables → Actions.
-# Cloudflare DNS: A record medicail.nf2.dev -> ssh_host (see README).
+# Cloudflare DNS: A record medicail.nf2.tech -> ssh_host (see README).
 
 ssh_host             = "203.0.113.10"
 ssh_user             = "root"
 ssh_port             = 22
 ssh_private_key_path = "~/.ssh/id_ed25519"
 
-domain     = "medicail.nf2.dev"
+domain     = "medicail.nf2.tech"
 acme_email = "ops@example.com"
 
 # Optional overrides
@@ -33,7 +33,7 @@ access_token_ttl       = "1h"
 refresh_token_ttl_days = 7
 
 # Outbound mail (Proton SMTP). Set smtp_user/smtp_pass via GitHub Secrets, not in git.
-smtp_host  = "smtp.protonmail.ch"
+smtp_host  = "smtp.proton.me"
 smtp_port  = 587
 smtp_user  = ""
 smtp_pass  = ""

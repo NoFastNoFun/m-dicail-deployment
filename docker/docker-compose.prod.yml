@@ -27,6 +27,7 @@ services:
       - "8000"
     environment:
       - PORT=${PORT:-8000}
+      - NODE_ENV=production
       - SECRET_KEY=${SECRET_KEY}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - NCBI_API_KEY=${NCBI_API_KEY}

@@ -23,7 +23,7 @@ variable "ssh_private_key_path" {
 variable "domain" {
   description = "Public domain pointing at the VPS via Cloudflare DNS (Let's Encrypt HTTP-01)"
   type        = string
-  default     = "medicail.nf2.dev"
+  default     = "medicail.nf2.tech"
 }
 
 variable "acme_email" {
@@ -116,9 +116,9 @@ variable "refresh_token_ttl_days" {
 }
 
 variable "smtp_host" {
-  description = "Outbound SMTP host (e.g. smtp.protonmail.ch). Leave empty to disable mail."
+  description = "Outbound SMTP host (e.g. smtp.proton.me). Required to send password-reset mail."
   type        = string
-  default     = "smtp.protonmail.ch"
+  default     = "smtp.proton.me"
 }
 
 variable "smtp_port" {

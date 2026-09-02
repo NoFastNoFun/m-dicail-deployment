@@ -2,7 +2,7 @@
 
 Terraform configuration for an **existing VPS**: installs Docker, clones the backend, obtains a Let's Encrypt certificate, and runs the production Compose stack (Postgres + API + AI + nginx) with HTTPS and HTTP→HTTPS redirect.
 
-Domain: **medicail.nf2.dev** (DNS on Cloudflare).
+Domain: **medicail.nf2.tech** (DNS on Cloudflare).
 
 This does **not** provision a cloud server. You bring the VPS; Terraform configures it over SSH.
 
@@ -30,7 +30,7 @@ Cloudflare SSL/TLS settings once the origin has a Let's Encrypt cert:
 - Encryption mode: **Full (strict)**
 - Avoid enabling "Always Use HTTPS" until the first Certbot run succeeds (it can block HTTP-01)
 
-After apply, the API is at `https://medicail.nf2.dev`.
+After apply, the API is at `https://medicail.nf2.tech`.
 
 ## Layout
 
@@ -70,7 +70,7 @@ cd m-dicail-deployment/terraform
 cp ../terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars: ssh_host, acme_email, secrets, key path
 # For a private backend: set backend_git_token to a PAT (contents:read)
-# domain is already medicail.nf2.dev
+# domain is already medicail.nf2.tech
 
 terraform init
 terraform plan
@@ -79,9 +79,9 @@ terraform apply
 
 Useful outputs after apply:
 
-- `health_url` — `https://medicail.nf2.dev/health`
-- `api_base_url` — `https://medicail.nf2.dev/api`
-- `docs_url` — `https://medicail.nf2.dev/docs`
+- `health_url` — `https://medicail.nf2.tech/health`
+- `api_base_url` — `https://medicail.nf2.tech/api`
+- `docs_url` — `https://medicail.nf2.tech/docs`
 
 ## What apply does
 
@@ -89,10 +89,10 @@ Useful outputs after apply:
 2. Locks down the host firewall (`manage_firewall`): UFW default-deny with only SSH/80/443, plus DOCKER-USER iptables rules so published container ports cannot bypass UFW. Deploy fails if 5432/8000/8001 are still listening publicly.
 3. Syncs Compose, nginx, and `.env` to `deploy_path`.
 4. Clones or updates `m-dicail-backend` at `backend_ref`.
-5. Obtains a Let's Encrypt cert for `medicail.nf2.dev` via Certbot **standalone** (port 80 must be free for the first issue).
+5. Obtains a Let's Encrypt cert for `medicail.nf2.tech` via Certbot **standalone** (port 80 must be free for the first issue).
 6. Runs `docker compose up -d --build` (Postgres on an internal Docker network; API/AI only on the Compose network — not host-published).
 7. Installs a daily renew cron that stops nginx briefly, renews, then starts nginx again.
-8. Smoke-checks `https://medicail.nf2.dev/health`.
+8. Smoke-checks `https://medicail.nf2.tech/health`.
 
 Re-running `terraform apply` re-syncs artifacts and re-runs the deploy script when inputs or file contents change.
 
@@ -141,7 +141,7 @@ Open the deployment repo → **Settings** → **Secrets and variables** → **Ac
 | `DEPLOY_PATH` | `/opt/m-dicail` | Install path on the VPS |
 | `BACKEND_REPO` | `NoFastNoFun/m-dicail-backend` | `owner/repo` used to verify the tag via GitHub API |
 | `BACKEND_REPO_URL` | `https://github.com/NoFastNoFun/m-dicail-backend.git` | Git URL cloned/fetched on the VPS |
-| `DOMAIN` | `medicail.nf2.dev` | Used for the post-deploy health check |
+| `DOMAIN` | `medicail.nf2.tech` | Used for the post-deploy health check |
 
 #### SSH key on the VPS
 
@@ -177,7 +177,7 @@ This deployment repo is separate from `m-dicail-backend`. The workflow checks th
 2. In `m-dicail-deployment` → **Actions** → **Deploy backend tag** → **Run workflow**.
 3. Enter the tag (e.g. `v1.2.0`) and confirm.
 4. Watch the job; it fails immediately if the tag is missing on the backend repo.
-5. Confirm `https://medicail.nf2.dev/health`.
+5. Confirm `https://medicail.nf2.tech/health`.
 
 The workflow syncs `docker-compose.prod.yml` and `nginx/nginx.conf` from this repo, copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, runs `docker compose up -d --build`, and smoke-checks health. It does not create `.env`, issue TLS certificates, or install Docker — those still come from the initial Terraform bootstrap.
 
@@ -224,20 +224,20 @@ Configure **Settings → Secrets and variables → Actions** on the deployment r
 | `POSTGRES_PASSWORD` | Postgres password |
 | `POSTGRES_DB` | Postgres database name |
 | `BACKEND_READ_TOKEN` | GitHub PAT with `contents:read` on backend repo |
-| `SMTP_USER` | Proton SMTP user (optional; leave empty to disable mail) |
-| `SMTP_PASS` | Proton SMTP token (optional) |
+| `SMTP_USER` | Proton SMTP user (required for password-reset mail) |
+| `SMTP_PASS` | Proton SMTP token (required for password-reset mail) |
 | `NCBI_API_KEY` | Optional PubMed API key |
 
 **Variables (non-secret defaults)**
 
 | Name | Example | Purpose |
 |------|---------|---------|
-| `DOMAIN` | `medicail.nf2.dev` | Public hostname |
+| `DOMAIN` | `medicail.nf2.tech` | Public hostname |
 | `ACME_EMAIL` | `ops@example.com` | Let's Encrypt contact (Terraform apply only) |
 | `DEPLOY_PATH` | `/opt/m-dicail` | Install path on VPS |
 | `BACKEND_REPO_URL` | `https://github.com/.../m-dicail-backend.git` | Backend clone URL |
 | `BACKEND_REF` | `main` | Branch/tag for Terraform bootstrap |
-| `SMTP_HOST` | `smtp.protonmail.ch` | SMTP server |
+| `SMTP_HOST` | `smtp.proton.me` | SMTP server |
 | `SMTP_PORT` | `587` | SMTP port |
 | `SMTP_FROM` | `Medicail <noreply@proton.me>` | From header |
 | `NCBI_EMAIL` | `ops@example.com` | NCBI contact email |
