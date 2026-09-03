@@ -94,4 +94,4 @@ jobs:
         run: |
           set -euo pipefail
           ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
-            "cd '${DEPLOY_PATH}' && docker compose -f docker-compose.prod.yml up -d --build api"
+            "cd '${DEPLOY_PATH}' && sudo docker compose -f docker-compose.prod.yml up -d --build --force-recreate --no-deps api"

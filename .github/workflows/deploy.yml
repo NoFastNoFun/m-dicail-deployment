@@ -24,6 +24,22 @@ jobs:
       DOMAIN: ${{ vars.DOMAIN || 'medicail.nf2.tech' }}
       ACME_EMAIL: ${{ vars.ACME_EMAIL }}
       BACKEND_REPO_URL: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
+      PORT: ${{ vars.PORT || '8000' }}
+      AI_PORT: ${{ vars.AI_PORT || '8001' }}
+      ACCESS_TOKEN_TTL: ${{ vars.ACCESS_TOKEN_TTL || '1h' }}
+      REFRESH_TOKEN_TTL_DAYS: ${{ vars.REFRESH_TOKEN_TTL_DAYS || '7' }}
+      SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.proton.me' }}
+      SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+      WEBAUTHN_RP_NAME: ${{ vars.WEBAUTHN_RP_NAME || 'Medicail' }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+      NCBI_EMAIL: ${{ vars.NCBI_EMAIL }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_FROM: ${{ vars.SMTP_FROM }}
 
     steps:
       - name: Checkout deployment repo
@@ -56,12 +72,17 @@ jobs:
             exit 1
           fi
 
-      - name: Require VPS_HOST
+      - name: Require VPS and app secrets
         run: |
-          if [ -z "${VPS_HOST}" ]; then
-            echo "::error::Secret VPS_HOST is required"
-            exit 1
-          fi
+          set -euo pipefail
+          missing=0
+          for name in VPS_HOST SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB SMTP_USER SMTP_PASS; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Secret ${name} is required (tag deploy writes /opt/m-dicail/.env from GitHub)"
+              missing=1
+            fi
+          done
+          exit "${missing}"
 
       - name: Start SSH agent and load key
         env:
@@ -100,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
-            "sudo mkdir -p '${DEPLOY_PATH}/nginx/conf.d' '${DEPLOY_PATH}/.generated' && sudo chown -R '${VPS_USER}:${VPS_USER}' '${DEPLOY_PATH}'"
+            "sudo mkdir -p '${DEPLOY_PATH}/nginx/conf.d' '${DEPLOY_PATH}/.generated' && sudo chown -R '${VPS_USER}:${VPS_USER}' '${DEPLOY_PATH}' && if [ -f '${DEPLOY_PATH}/.env' ]; then sudo chown root:root '${DEPLOY_PATH}/.env' && sudo chmod 600 '${DEPLOY_PATH}/.env'; fi"
 
           scp -P "${VPS_PORT}" \
             docker/docker-compose.prod.yml \
@@ -125,6 +146,15 @@ jobs:
           scp -P "${VPS_PORT}" \
             scripts/deploy-backend-tag.sh \
             "${VPS_USER}@${VPS_HOST}:/tmp/deploy-backend-tag.sh"
+
+      - name: Render and upload .env from GitHub
+        run: |
+          set -euo pipefail
+          bash scripts/render-env.sh > /tmp/m-dicail.env
+          scp -P "${VPS_PORT}" /tmp/m-dicail.env "${VPS_USER}@${VPS_HOST}:/tmp/m-dicail.env"
+          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+            "sudo install -m 600 -o root -g root /tmp/m-dicail.env '${DEPLOY_PATH}/.env' && rm -f /tmp/m-dicail.env"
+          rm -f /tmp/m-dicail.env
 
       - name: Deploy tag on VPS
         env:
