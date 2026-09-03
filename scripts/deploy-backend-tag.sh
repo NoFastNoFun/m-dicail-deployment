@@ -105,6 +105,39 @@ require_bootstrap() {
   require_cmd curl
 }
 
+# Read a key from /opt/m-dicail/.env without printing the value.
+env_file_value() {
+  local key="$1"
+  local line=""
+  [[ -f "${DEPLOY_PATH}/.env" ]] || return 0
+  line="$(awk -F= -v k="${key}" 'BEGIN{found=0} $1==k && !found {sub(/^[^=]*=/, ""); print; found=1}' "${DEPLOY_PATH}/.env" | tr -d '\r')"
+  line="${line#\"}"
+  line="${line%\"}"
+  line="${line#\'}"
+  line="${line%\'}"
+  printf '%s' "${line}"
+}
+
+require_prod_env() {
+  local key val missing=()
+  [[ -f "${DEPLOY_PATH}/.env" ]] || die "missing ${DEPLOY_PATH}/.env"
+
+  for key in SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB APP_PUBLIC_URL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS WEBAUTHN_RP_ID WEBAUTHN_ORIGIN; do
+    val="$(env_file_value "${key}")"
+    if [[ -z "${val}" ]]; then
+      missing+=("${key}")
+    fi
+  done
+  if [[ -z "$(env_file_value SMTP_FROM)" && -z "$(env_file_value SMTP_USER)" ]]; then
+    missing+=("SMTP_FROM")
+  fi
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    die "production .env missing: ${missing[*]}. v0.0.11 boots with NODE_ENV=production and exits if these are empty (nginx then 502s). Run GitHub Actions → Sync VPS environment after setting secrets SMTP_USER and SMTP_PASS (and variable SMTP_FROM). Set variable DOMAIN=medicail.nf2.tech first so Sync does not rewrite URLs back to nf2.dev."
+  fi
+  log "Production .env has required keys (values not printed)"
+}
+
 sync_backend_tag() {
   local tag="$1"
   local clean_url auth_url
@@ -188,20 +221,32 @@ configure_firewall() {
 }
 
 health_check() {
-  local url="https://${DOMAIN}/health"
-  log "Waiting for ${url}"
   local i
+  log "Waiting for api via nginx upstream http://api:8000/health"
   for i in $(seq 1 36); do
-    if curl -fsS --max-time 5 "${url}" | grep -q ok; then
-      log "Health check passed"
-      return 0
+    if docker compose -f "${COMPOSE_FILE}" exec -T nginx wget -qO- --timeout=3 http://api:8000/health 2>/dev/null | grep -q ok; then
+      log "Upstream /health ok"
+      if curl -fsSk --max-time 5 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/health" | grep -q ok; then
+        log "Local HTTPS /health passed"
+        return 0
+      fi
+      log "WARN: api is up but local HTTPS /health failed (nginx/TLS)"
+    fi
+    if docker compose -f "${COMPOSE_FILE}" ps api 2>/dev/null | grep -qi restarting; then
+      log "api container is restarting — not waiting out Cloudflare 502s"
+      dump_api_failure
+      die "api crash-loop. Look for 'Production env missing:' in the api logs above. If SMTP_* are listed, run GitHub Actions → Sync VPS environment, then recreate the api container."
     fi
     sleep 5
   done
   log "Health check failed after retries"
-  docker compose -f "${COMPOSE_FILE}" ps || true
-  docker compose -f "${COMPOSE_FILE}" logs --tail=80 || true
+  dump_api_failure
   exit 1
+}
+
+dump_api_failure() {
+  docker compose -f "${COMPOSE_FILE}" ps || true
+  docker compose -f "${COMPOSE_FILE}" logs --tail=120 api || true
 }
 
 main() {
@@ -224,6 +269,7 @@ main() {
   else
     log "WARN: missing ${DEPLOY_PATH}/.generated/ensure-site-tls.sh; nginx/TLS will not be updated"
   fi
+  require_prod_env
   start_stack
   health_check
   log "Deploy of tag ${tag} complete"

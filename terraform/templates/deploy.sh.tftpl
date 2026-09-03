@@ -255,6 +255,29 @@ start_stack() {
   ASSERT_ONLY=true bash "$${FIREWALL_SCRIPT}"
 }
 
+require_prod_env() {
+  local envf="$${DEPLOY_PATH}/.env"
+  local key val missing=""
+  [[ -f "$${envf}" ]] || { log "ERROR: missing $${envf}"; exit 1; }
+  env_val() {
+    awk -F= -v k="$1" 'BEGIN{f=0} $1==k && !f {sub(/^[^=]*=/, ""); print; f=1}' "$${envf}" | tr -d '\r'
+  }
+  for key in SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB APP_PUBLIC_URL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS WEBAUTHN_RP_ID WEBAUTHN_ORIGIN; do
+    val="$(env_val "$${key}")"
+    val="$${val#\"}"
+    val="$${val%\"}"
+    if [[ -z "$${val}" ]]; then
+      missing="$${missing} $${key}"
+    fi
+  done
+  if [[ -n "$${missing}" ]]; then
+    log "ERROR: production .env missing:$${missing}"
+    log "ERROR: v0.0.11 exits on empty SMTP/WebAuthn/APP_PUBLIC_URL when NODE_ENV=production"
+    exit 1
+  fi
+  log "Production .env has required keys (values not printed)"
+}
+
 health_check() {
   local url="https://$${DOMAIN}/health"
   log "Waiting for $${url}"
@@ -284,6 +307,7 @@ main() {
   configure_firewall
   sync_backend
   obtain_certificate
+  require_prod_env
   start_stack
   install_renewal_hook
   health_check

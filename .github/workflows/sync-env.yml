@@ -47,9 +47,9 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in VPS_HOST SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB; do
+          for name in VPS_HOST SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB SMTP_USER SMTP_PASS; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::Secret or variable ${name} is required"
+              echo "::error::Secret or variable ${name} is required (v0.0.11+ API refuses to boot without SMTP in production)"
               missing=1
             fi
           done

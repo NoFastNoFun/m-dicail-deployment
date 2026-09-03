@@ -12,6 +12,10 @@ set -euo pipefail
 PORT="${PORT:-8000}"
 AI_PORT="${AI_PORT:-8001}"
 DOMAIN="${DOMAIN:-medicail.nf2.tech}"
+if [[ "${DOMAIN}" == *".nf2.dev" ]]; then
+  echo "[m-dicail-env] WARN: DOMAIN=${DOMAIN} uses expired nf2.dev; forcing medicail.nf2.tech" >&2
+  DOMAIN="medicail.nf2.tech"
+fi
 ACCESS_TOKEN_TTL="${ACCESS_TOKEN_TTL:-1h}"
 REFRESH_TOKEN_TTL_DAYS="${REFRESH_TOKEN_TTL_DAYS:-7}"
 NCBI_API_KEY="${NCBI_API_KEY:-}"
