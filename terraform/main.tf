@@ -32,11 +32,17 @@ locals {
     webauthn_origin        = "https://${var.domain}"
   })
 
-  nginx_default = replace(
+  nginx_template = replace(replace(
     file("${path.module}/templates/nginx-default.conf"),
-    "__DOMAIN__",
-    var.domain,
-  )
+    "\r\n",
+    "\n",
+  ), "\r", "")
+
+  ensure_site_tls_script = replace(replace(
+    file("${path.module}/../scripts/ensure-site-tls.sh"),
+    "\r\n",
+    "\n",
+  ), "\r", "")
 
   deploy_script = replace(templatefile("${path.module}/templates/deploy.sh.tftpl", {
     deploy_path      = var.deploy_path
@@ -57,12 +63,13 @@ locals {
   ), "\r", "")
 
   # Bump when deploy semantics change so null_resource always re-runs.
-  deploy_generation = "6-docker-user-egress"
+  deploy_generation = "7-domain-cutover-webroot-tls"
 
   # Triggers re-provision when deploy inputs or artifacts change.
   content_fingerprint = sha256(join("|", [
     local.env_file,
-    local.nginx_default,
+    local.nginx_template,
+    local.ensure_site_tls_script,
     local.deploy_script,
     local.firewall_script,
     local.deploy_generation,
@@ -77,10 +84,16 @@ locals {
   ]))
 }
 
-resource "local_file" "rendered_nginx_default" {
-  content         = local.nginx_default
-  filename        = "${path.module}/.generated/nginx-default.conf"
+resource "local_file" "nginx_template" {
+  content         = local.nginx_template
+  filename        = "${path.module}/.generated/nginx-default.conf.tpl"
   file_permission = "0644"
+}
+
+resource "local_file" "rendered_ensure_site_tls" {
+  content         = local.ensure_site_tls_script
+  filename        = "${path.module}/.generated/ensure-site-tls.sh"
+  file_permission = "0755"
 }
 
 resource "local_file" "rendered_env" {
@@ -140,8 +153,13 @@ resource "null_resource" "deploy" {
   }
 
   provisioner "file" {
-    source      = local_file.rendered_nginx_default.filename
-    destination = "${var.deploy_path}/nginx/conf.d/default.conf"
+    source      = local_file.nginx_template.filename
+    destination = "${var.deploy_path}/nginx/nginx-default.conf.tpl"
+  }
+
+  provisioner "file" {
+    source      = local_file.rendered_ensure_site_tls.filename
+    destination = "${var.deploy_path}/.generated/ensure-site-tls.sh"
   }
 
   provisioner "file" {
@@ -170,16 +188,16 @@ resource "null_resource" "deploy" {
       "chmod 600 ${var.deploy_path}/.generated/backend-git-token",
       "chmod 755 ${var.deploy_path}/.generated/deploy.sh",
       "chmod 755 ${var.deploy_path}/.generated/configure-host-firewall.sh",
+      "chmod 755 ${var.deploy_path}/.generated/ensure-site-tls.sh",
       # Belt-and-suspenders: drop any CR that survived the file provisioner.
-      "sed -i 's/\\r$//' ${var.deploy_path}/.generated/deploy.sh ${var.deploy_path}/.generated/configure-host-firewall.sh",
-      "if grep -nE 'upstream_|[$][$]' ${var.deploy_path}/nginx/conf.d/default.conf; then echo 'REFUSING broken nginx config' >&2; exit 1; fi",
-      "echo '[m-dicail-deploy] nginx site config (head):' && sed -n '1,45p' ${var.deploy_path}/nginx/conf.d/default.conf",
+      "sed -i 's/\\r$//' ${var.deploy_path}/.generated/deploy.sh ${var.deploy_path}/.generated/configure-host-firewall.sh ${var.deploy_path}/.generated/ensure-site-tls.sh ${var.deploy_path}/nginx/nginx-default.conf.tpl",
       "sudo ${var.deploy_path}/.generated/deploy.sh",
     ]
   }
 
   depends_on = [
-    local_file.rendered_nginx_default,
+    local_file.nginx_template,
+    local_file.rendered_ensure_site_tls,
     local_file.rendered_env,
     local_file.rendered_deploy_script,
     local_file.rendered_backend_git_token,

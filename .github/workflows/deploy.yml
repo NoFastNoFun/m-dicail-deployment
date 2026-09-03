@@ -22,6 +22,7 @@ jobs:
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/m-dicail' }}
       DOMAIN: ${{ vars.DOMAIN || 'medicail.nf2.tech' }}
+      ACME_EMAIL: ${{ vars.ACME_EMAIL }}
       BACKEND_REPO_URL: ${{ vars.BACKEND_REPO_URL || 'https://github.com/NoFastNoFun/m-dicail-backend.git' }}
 
     steps:
@@ -110,8 +111,16 @@ jobs:
             "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/nginx/nginx.conf"
 
           scp -P "${VPS_PORT}" \
+            terraform/templates/nginx-default.conf \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/nginx/nginx-default.conf.tpl"
+
+          scp -P "${VPS_PORT}" \
             scripts/configure-host-firewall.sh \
             "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/configure-host-firewall.sh"
+
+          scp -P "${VPS_PORT}" \
+            scripts/ensure-site-tls.sh \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/ensure-site-tls.sh"
 
           scp -P "${VPS_PORT}" \
             scripts/deploy-backend-tag.sh \
@@ -135,6 +144,7 @@ jobs:
               DEPLOY_PATH='${DEPLOY_PATH}' \
               BACKEND_REPO_URL='${BACKEND_REPO_URL}' \
               DOMAIN='${DOMAIN}' \
+              ACME_EMAIL='${ACME_EMAIL}' \
               SSH_PORT='${VPS_PORT}' \
               MANAGE_FIREWALL='true' \
               bash /tmp/deploy-backend-tag.sh \

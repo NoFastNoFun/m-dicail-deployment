@@ -10,13 +10,13 @@ This does **not** provision a cloud server. You bring the VPS; Terraform configu
 
 1. A Linux VPS (Debian/Ubuntu preferred) with outbound internet.
 2. SSH access as `root` (or a user with passwordless `sudo`) using a private key.
-3. Cloudflare DNS for `nf2.dev` configured as below (required before `terraform apply`).
+3. Cloudflare DNS for `nf2.tech` configured as below (required before `terraform apply`).
 4. [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5 on your local machine.
 5. The backend git repo reachable from the VPS (`backend_repo_url`). Public HTTPS clone works out of the box. For a **private** backend, set `backend_git_token` in `terraform.tfvars` to a GitHub PAT with `contents:read` (classic or fine-grained). Terraform installs it on the VPS and git uses `Authorization: Bearer` — no interactive username prompt.
 
 ## Cloudflare DNS
 
-In the Cloudflare dashboard for `nf2.dev`:
+In the Cloudflare dashboard for `nf2.tech`:
 
 | Type | Name | Content | Proxy |
 |------|------|---------|-------|
@@ -45,12 +45,13 @@ m-dicail-deployment/
 │   └── nginx/                    # base nginx.conf; site conf rendered by Terraform
 ├── scripts/
 │   ├── configure-host-firewall.sh  # UFW + DOCKER-USER lockdown (80/443/SSH only)
-│   └── deploy-backend-tag.sh     # VPS tag checkout + compose rebuild (used by Actions)
+│   ├── deploy-backend-tag.sh     # VPS tag checkout + compose rebuild (used by Actions)
+│   └── ensure-site-tls.sh        # nginx site render + Let's Encrypt (webroot)
 ├── terraform/
 │   ├── main.tf                   # SSH provisioners + deploy
 │   ├── variables.tf
 │   ├── outputs.tf
-│   └── templates/                # .env, deploy.sh, nginx-default.conf (__DOMAIN__)
+│   └── templates/                # .env, deploy.sh, nginx-default.conf (__DOMAIN__, __CERT_NAME__)
 └── terraform.tfvars.example
 ```
 
@@ -89,9 +90,9 @@ Useful outputs after apply:
 2. Locks down the host firewall (`manage_firewall`): UFW default-deny with only SSH/80/443, plus DOCKER-USER iptables rules so published container ports cannot bypass UFW. Deploy fails if 5432/8000/8001 are still listening publicly.
 3. Syncs Compose, nginx, and `.env` to `deploy_path`.
 4. Clones or updates `m-dicail-backend` at `backend_ref`.
-5. Obtains a Let's Encrypt cert for `medicail.nf2.tech` via Certbot **standalone** (port 80 must be free for the first issue).
-6. Runs `docker compose up -d --build` (Postgres on an internal Docker network; API/AI only on the Compose network — not host-published).
-7. Installs a daily renew cron that stops nginx briefly, renews, then starts nginx again.
+5. Obtains a Let's Encrypt cert for `medicail.nf2.tech` via Certbot **webroot** if nginx is already up, or **standalone** on first install.
+6. Runs `docker compose up` (Postgres is not force-recreated; API/AI/nginx are). Postgres stays on an internal Docker network; API/AI only on the Compose network — not host-published.
+7. Installs a daily renew cron that uses webroot (nginx stays up).
 8. Smoke-checks `https://medicail.nf2.tech/health`.
 
 Re-running `terraform apply` re-syncs artifacts and re-runs the deploy script when inputs or file contents change.
@@ -141,7 +142,7 @@ Open the deployment repo → **Settings** → **Secrets and variables** → **Ac
 | `DEPLOY_PATH` | `/opt/m-dicail` | Install path on the VPS |
 | `BACKEND_REPO` | `NoFastNoFun/m-dicail-backend` | `owner/repo` used to verify the tag via GitHub API |
 | `BACKEND_REPO_URL` | `https://github.com/NoFastNoFun/m-dicail-backend.git` | Git URL cloned/fetched on the VPS |
-| `DOMAIN` | `medicail.nf2.tech` | Used for the post-deploy health check |
+| `DOMAIN` | `medicail.nf2.tech` | Public hostname (nginx `server_name`, cert, health check). Must not stay `medicail.nf2.dev`. |
 
 #### SSH key on the VPS
 
@@ -179,7 +180,7 @@ This deployment repo is separate from `m-dicail-backend`. The workflow checks th
 4. Watch the job; it fails immediately if the tag is missing on the backend repo.
 5. Confirm `https://medicail.nf2.tech/health`.
 
-The workflow syncs `docker-compose.prod.yml` and `nginx/nginx.conf` from this repo, copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, runs `docker compose up -d --build`, and smoke-checks health. It does not create `.env`, issue TLS certificates, or install Docker — those still come from the initial Terraform bootstrap.
+The workflow syncs `docker-compose.prod.yml`, nginx configs, and `scripts/ensure-site-tls.sh` from this repo, copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, issues or reuses a Let's Encrypt cert for `DOMAIN`, runs `docker compose up` for api/ai/nginx, and smoke-checks health. It does not install Docker — that still comes from the initial Terraform bootstrap.
 
 ### Non-goals
 
@@ -258,15 +259,16 @@ Do **not** commit `terraform.tfvars` or Terraform state files that contain secre
 
 ## TLS renewal
 
-Certbot runs daily via `/etc/cron.d/m-dicail-certbot` → `/usr/local/bin/m-dicail-certbot-renew`. The renew wrapper stops the nginx container for the standalone challenge, then starts it again. Certificates live on the host under `/etc/letsencrypt` and are mounted into nginx.
+Certbot renews via webroot (`/.well-known/acme-challenge/`) without stopping nginx. Certificates live on the host under `/etc/letsencrypt` and are mounted into nginx.
 
 Manual renew:
 
 ```bash
-sudo /usr/local/bin/m-dicail-certbot-renew
+sudo certbot renew --webroot -w /var/www/certbot
+sudo docker compose -f /opt/m-dicail/docker-compose.prod.yml exec -T nginx nginx -s reload
 ```
 
-If the Cloudflare record is proxied (orange cloud), renewals that use HTTP-01 can fail. Keep the record **DNS only**, or switch Certbot to DNS-01 with a Cloudflare API token later.
+First issue for a **new hostname** (for example after `nf2.dev` → `nf2.tech`) also uses webroot while nginx is already serving. If Cloudflare "Always Use HTTPS" is on, HTTP-01 can fail; temporarily disable it or grey-cloud the record, then re-run deploy.
 
 ## Operations on the VPS
 

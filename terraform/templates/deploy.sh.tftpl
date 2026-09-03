@@ -194,32 +194,14 @@ sync_backend() {
 }
 
 obtain_certificate() {
-  mkdir -p /var/www/certbot /etc/letsencrypt
-
-  if [[ -f "/etc/letsencrypt/live/$${DOMAIN}/fullchain.pem" ]]; then
-    log "TLS certificate already present for $${DOMAIN}"
-    return
+  local tls_script="$${DEPLOY_PATH}/.generated/ensure-site-tls.sh"
+  if [[ ! -f "$${tls_script}" ]]; then
+    log "ERROR: missing $${tls_script}"
+    exit 1
   fi
-
-  log "Obtaining Let's Encrypt certificate for $${DOMAIN} (standalone)"
-  if [[ -f "$${COMPOSE_FILE}" ]]; then
-    (cd "$${DEPLOY_PATH}" && docker compose -f "$${COMPOSE_FILE}" stop nginx) || true
-  fi
-
-  # Free port 80 if something else is listening
-  if require_cmd ss && ss -ltn | grep -q ':80 '; then
-    log "Port 80 is in use; attempting to stop conflicting listeners for Certbot"
-    systemctl stop nginx 2>/dev/null || true
-    systemctl stop apache2 2>/dev/null || true
-  fi
-
-  certbot certonly \
-    --standalone \
-    --non-interactive \
-    --agree-tos \
-    --email "$${ACME_EMAIL}" \
-    -d "$${DOMAIN}" \
-    --keep-until-expiring
+  chmod 755 "$${tls_script}"
+  env DOMAIN="$${DOMAIN}" ACME_EMAIL="$${ACME_EMAIL}" DEPLOY_PATH="$${DEPLOY_PATH}" \
+    bash "$${tls_script}"
 }
 
 install_renewal_hook() {
@@ -230,9 +212,8 @@ set -euo pipefail
 DEPLOY_PATH="$${DEPLOY_PATH}"
 COMPOSE_FILE="$${COMPOSE_FILE}"
 cd "$${DEPLOY_PATH}"
-certbot renew --quiet \
-  --pre-hook "docker compose -f $${COMPOSE_FILE} stop nginx" \
-  --post-hook "docker compose -f $${COMPOSE_FILE} start nginx"
+certbot renew --quiet --webroot -w /var/www/certbot \
+  --post-hook "docker compose -f $${COMPOSE_FILE} exec -T nginx nginx -s reload || docker compose -f $${COMPOSE_FILE} start nginx"
 EOF
   chmod 755 "$${renew_script}"
 
@@ -257,8 +238,16 @@ start_stack() {
   log "Building and starting Docker Compose stack"
   cd "$${DEPLOY_PATH}"
   stop_insecure_published_stacks
-  # Force nginx recreate so a stale container cannot keep an old bind-mount view.
-  docker compose -f "$${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate
+  docker compose -f "$${COMPOSE_FILE}" up -d postgres
+  local i
+  for i in $$(seq 1 30); do
+    if docker compose -f "$${COMPOSE_FILE}" exec -T postgres pg_isready >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+  docker compose -f "$${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate --no-deps api ai
+  docker compose -f "$${COMPOSE_FILE}" up -d --force-recreate --no-deps nginx
   # Re-apply DOCKER-USER after compose publishes 80/443.
   if [[ -x /usr/local/sbin/m-dicail-docker-user-fw ]]; then
     /usr/local/sbin/m-dicail-docker-user-fw || true

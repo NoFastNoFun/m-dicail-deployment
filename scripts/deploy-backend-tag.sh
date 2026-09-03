@@ -10,6 +10,12 @@ BACKEND_REPO_URL="${BACKEND_REPO_URL:-https://github.com/NoFastNoFun/m-dicail-ba
 DOMAIN="${DOMAIN:-medicail.nf2.tech}"
 BACKEND_TAG="${BACKEND_TAG:-}"
 
+# Expired zone leftover: GitHub vars.DOMAIN may still be medicail.nf2.dev.
+if [[ "${DOMAIN}" == *".nf2.dev" ]]; then
+  echo "[m-dicail-deploy] WARN: DOMAIN=${DOMAIN} uses expired nf2.dev; forcing medicail.nf2.tech" >&2
+  DOMAIN="medicail.nf2.tech"
+fi
+
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"
 BACKEND_DIR="${DEPLOY_PATH}/backend"
 TOKEN_FILE="${DEPLOY_PATH}/.generated/backend-git-token"
@@ -91,7 +97,7 @@ require_bootstrap() {
   [[ -f "${COMPOSE_FILE}" ]] || die "missing ${COMPOSE_FILE}; GitHub Actions should sync it from the deployment repo, or run terraform apply once"
   [[ -f "${DEPLOY_PATH}/.env" ]] || die "missing ${DEPLOY_PATH}/.env; bootstrap the VPS once with: cd terraform && terraform apply"
   [[ -f "${DEPLOY_PATH}/nginx/nginx.conf" ]] || log "WARN: missing ${DEPLOY_PATH}/nginx/nginx.conf (nginx may fail until terraform apply or Actions sync)"
-  [[ -f "${DEPLOY_PATH}/nginx/conf.d/default.conf" ]] || die "missing ${DEPLOY_PATH}/nginx/conf.d/default.conf; bootstrap the VPS once with terraform apply (TLS site config)"
+  [[ -f "${DEPLOY_PATH}/nginx/nginx-default.conf.tpl" ]] || die "missing ${DEPLOY_PATH}/nginx/nginx-default.conf.tpl; sync the nginx template from the deployment repo"
 
   require_cmd docker
   docker compose version >/dev/null 2>&1 || die "docker compose plugin required (install via terraform apply or install Docker on the VPS)"
@@ -139,7 +145,17 @@ start_stack() {
   log "Building and starting Docker Compose stack"
   cd "${DEPLOY_PATH}"
 
-  docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate
+  docker compose -f "${COMPOSE_FILE}" up -d postgres
+  local i
+  for i in $(seq 1 30); do
+    if docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+
+  docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate --no-deps api ai
+  docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --no-deps nginx
 
   if [[ -x /usr/local/sbin/m-dicail-docker-user-fw ]]; then
     /usr/local/sbin/m-dicail-docker-user-fw || true
@@ -201,6 +217,13 @@ main() {
   stop_insecure_published_stacks
   configure_firewall
   sync_backend_tag "${tag}"
+  if [[ -f "${DEPLOY_PATH}/.generated/ensure-site-tls.sh" ]]; then
+    chmod 755 "${DEPLOY_PATH}/.generated/ensure-site-tls.sh"
+    env DOMAIN="${DOMAIN}" ACME_EMAIL="${ACME_EMAIL:-}" DEPLOY_PATH="${DEPLOY_PATH}" \
+      bash "${DEPLOY_PATH}/.generated/ensure-site-tls.sh"
+  else
+    log "WARN: missing ${DEPLOY_PATH}/.generated/ensure-site-tls.sh; nginx/TLS will not be updated"
+  fi
   start_stack
   health_check
   log "Deploy of tag ${tag} complete"

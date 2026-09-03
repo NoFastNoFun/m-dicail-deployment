@@ -34,15 +34,16 @@ services:
       - NCBI_EMAIL=${NCBI_EMAIL:-}
       - ACCESS_TOKEN_TTL=${ACCESS_TOKEN_TTL:-1h}
       - REFRESH_TOKEN_TTL_DAYS=${REFRESH_TOKEN_TTL_DAYS:-7}
-      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-}
+      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-https://medicail.nf2.tech}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://medicail.nf2.tech}
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-}
-      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-medicail.nf2.tech}
       - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Medicail}
-      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-}
+      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://medicail.nf2.tech}
     depends_on:
       postgres:
         condition: service_healthy
