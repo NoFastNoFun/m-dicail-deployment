@@ -35,6 +35,7 @@ services:
       - ACCESS_TOKEN_TTL=${ACCESS_TOKEN_TTL:-1h}
       - REFRESH_TOKEN_TTL_DAYS=${REFRESH_TOKEN_TTL_DAYS:-7}
       - APP_PUBLIC_URL=${APP_PUBLIC_URL:-https://medicail.nf2.tech}
+      - APP_DEEPLINK_SCHEME=${APP_DEEPLINK_SCHEME:-medicail}
       - CORS_ORIGINS=${CORS_ORIGINS:-https://medicail.nf2.tech}
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}

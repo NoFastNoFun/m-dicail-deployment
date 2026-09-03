@@ -244,7 +244,7 @@ Configure **Settings → Secrets and variables → Actions** on the deployment r
 | `NCBI_EMAIL` | `ops@example.com` | NCBI contact email |
 | `WEBAUTHN_RP_NAME` | `Medicail` | Passkey display name |
 
-`APP_PUBLIC_URL`, `WEBAUTHN_RP_ID`, and `WEBAUTHN_ORIGIN` are derived from `DOMAIN` automatically.
+`APP_PUBLIC_URL`, `APP_DEEPLINK_SCHEME` (default `medicail`), `WEBAUTHN_RP_ID`, and `WEBAUTHN_ORIGIN` are derived from `DOMAIN` / defaults automatically.
 
 Optional: `VPS_USER` (default `root`), `VPS_PORT` (default `22`).
 
