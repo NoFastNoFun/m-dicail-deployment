@@ -19,6 +19,7 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+# Domain name change because it expired and me (Ethan) am too lazy to spend 40 € on it again
 reject_expired_domain() {
   local domain="${1:-${DOMAIN:-}}"
   if [[ "${domain}" == *".nf2.dev" ]]; then
