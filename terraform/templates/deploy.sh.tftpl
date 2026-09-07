@@ -10,89 +10,36 @@ MANAGE_FIREWALL="${manage_firewall}"
 SSH_PORT="${ssh_port}"
 COMPOSE_FILE="$${DEPLOY_PATH}/docker-compose.prod.yml"
 FIREWALL_SCRIPT="$${DEPLOY_PATH}/.generated/configure-host-firewall.sh"
+TOKEN_FILE="$${DEPLOY_PATH}/.generated/backend-git-token"
+LOG_PREFIX="m-dicail-deploy"
 
 export DEBIAN_FRONTEND=noninteractive
 export GIT_TERMINAL_PROMPT=0
 
-TOKEN_FILE="$${DEPLOY_PATH}/.generated/backend-git-token"
+LIB_DIR="$${DEPLOY_PATH}/.generated/lib"
+# shellcheck disable=SC1091
+source "$${LIB_DIR}/common.sh"
+# shellcheck disable=SC1091
+source "$${LIB_DIR}/git-backend.sh"
 
 # Never use SSH for GitHub on the VPS (avoids host-key prompts / deploy keys).
 unset GIT_SSH_COMMAND || true
 
-log() {
-  echo "[m-dicail-deploy] $*"
-}
-
-require_cmd() {
+cmd_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
-read_backend_token() {
-  if [[ -n "$${BACKEND_GIT_TOKEN:-}" ]]; then
-    printf '%s' "$${BACKEND_GIT_TOKEN}"
-    return
-  fi
-  if [[ -f "$${TOKEN_FILE}" ]]; then
-    tr -d '\r\n' < "$${TOKEN_FILE}"
-  fi
-}
-
-# Force HTTPS even if tfvars / an old clone uses git@github.com:...
-https_github_url() {
-  local url="$1"
-  case "$${url}" in
-    git@github.com:*)
-      printf 'https://github.com/%s' "$${url#git@github.com:}"
-      ;;
-    ssh://git@github.com/*)
-      printf 'https://github.com/%s' "$${url#ssh://git@github.com/}"
-      ;;
-    https://github.com/*|http://github.com/*)
-      printf '%s' "$${url}"
-      ;;
-    *)
-      printf '%s' "$${url}"
-      ;;
-  esac
-}
-
-# https://github.com/org/repo.git + PAT -> https://x-access-token:PAT@github.com/org/repo.git
-# This is the auth form GitHub documents for non-interactive HTTPS (no Username prompt).
-github_authed_url() {
-  local clean token hostpath
-  clean="$(https_github_url "$1")"
-  token="$(read_backend_token)"
-  if [[ -z "$${token}" ]]; then
-    log "ERROR: empty GitHub PAT. Set backend_git_token in terraform.tfvars, then terraform apply."
-    log "ERROR: expected token file: $${TOKEN_FILE}"
-    exit 1
-  fi
-  hostpath="$${clean#https://}"
-  hostpath="$${hostpath#http://}"
-  # Drop any pre-existing userinfo
-  if [[ "$${hostpath}" == *@* ]]; then
-    hostpath="$${hostpath#*@}"
-  fi
-  printf 'https://x-access-token:%s@%s' "$${token}" "$${hostpath}"
-}
-
-git_fetch_or_clone_cleanup_remote() {
-  local dir="$1"
-  local clean_url="$2"
-  git -C "$${dir}" remote set-url origin "$${clean_url}"
-}
-
 install_docker() {
-  if require_cmd docker && docker compose version >/dev/null 2>&1; then
+  if cmd_exists docker && docker compose version >/dev/null 2>&1; then
     log "Docker and Compose already installed"
     return
   fi
 
   log "Installing Docker Engine + Compose plugin"
-  if require_cmd apt-get; then
+  if cmd_exists apt-get; then
     apt-get update -y
     apt-get install -y ca-certificates curl
-  elif require_cmd dnf; then
+  elif cmd_exists dnf; then
     dnf install -y curl
   fi
 
@@ -100,53 +47,32 @@ install_docker() {
   systemctl enable --now docker || true
 
   if ! docker compose version >/dev/null 2>&1; then
-    log "Docker Compose plugin missing after install"
-    exit 1
+    die "Docker Compose plugin missing after install"
   fi
 }
 
 install_certbot() {
-  if require_cmd certbot; then
+  if cmd_exists certbot; then
     log "Certbot already installed"
     return
   fi
 
   log "Installing Certbot"
-  if require_cmd apt-get; then
+  if cmd_exists apt-get; then
     apt-get update -y
     apt-get install -y certbot
-  elif require_cmd dnf; then
+  elif cmd_exists dnf; then
     dnf install -y certbot
   else
-    log "Install certbot manually, then re-run terraform apply"
-    exit 1
+    die "Install certbot manually, then re-run terraform apply"
   fi
 }
 
 configure_firewall() {
-  if [[ ! -f "$${FIREWALL_SCRIPT}" ]]; then
-    log "ERROR: missing firewall script at $${FIREWALL_SCRIPT}"
-    exit 1
-  fi
+  [[ -f "$${FIREWALL_SCRIPT}" ]] || die "missing firewall script at $${FIREWALL_SCRIPT}"
   chmod 755 "$${FIREWALL_SCRIPT}"
   env MANAGE_FIREWALL="$${MANAGE_FIREWALL}" SSH_PORT="$${SSH_PORT}" \
     bash "$${FIREWALL_SCRIPT}"
-}
-
-# Stop leftover stacks that may still publish 5432/8000 (e.g. backend docker-compose.yml).
-stop_insecure_published_stacks() {
-  if ! require_cmd docker; then
-    return 0
-  fi
-  local id name ports
-  while IFS=$'\t' read -r id name ports; do
-    [[ -n "$${id}" ]] || continue
-    if echo "$${ports}" | grep -Eq '0\.0\.0\.0:(5432|8000|8001)->|:::(5432|8000|8001)->'; then
-      log "Stopping container with public app/db ports: $${name} ($${ports})"
-      docker stop "$${id}" >/dev/null 2>&1 || true
-      docker rm "$${id}" >/dev/null 2>&1 || true
-    fi
-  done < <(docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null || true)
 }
 
 sync_backend() {
@@ -163,7 +89,7 @@ sync_backend() {
     log "Updating backend ($${BACKEND_REF})"
     git -C "$${backend_dir}" remote set-url origin "$${auth_url}"
     git -C "$${backend_dir}" -c credential.helper= -c core.askPass= fetch --all --tags --prune
-    git_fetch_or_clone_cleanup_remote "$${backend_dir}" "$${clean_url}"
+    git_cleanup_remote "$${backend_dir}" "$${clean_url}"
     if git -C "$${backend_dir}" rev-parse "refs/tags/$${BACKEND_REF}" >/dev/null 2>&1; then
       log "Checkout tag $${BACKEND_REF} (detached HEAD)"
       git -C "$${backend_dir}" checkout --detach "refs/tags/$${BACKEND_REF}"
@@ -173,15 +99,15 @@ sync_backend() {
       git -C "$${backend_dir}" remote set-url origin "$${auth_url}"
       git -C "$${backend_dir}" -c credential.helper= -c core.askPass= pull --ff-only origin "$${BACKEND_REF}" || \
         git -C "$${backend_dir}" reset --hard "$${BACKEND_REF}"
-      git_fetch_or_clone_cleanup_remote "$${backend_dir}" "$${clean_url}"
+      git_cleanup_remote "$${backend_dir}" "$${clean_url}"
     fi
   else
     log "Cloning backend from $${BACKEND_REPO_URL}"
     rm -rf "$${backend_dir}"
-    if ! require_cmd git; then
-      if require_cmd apt-get; then
+    if ! cmd_exists git; then
+      if cmd_exists apt-get; then
         apt-get update -y && apt-get install -y git
-      elif require_cmd dnf; then
+      elif cmd_exists dnf; then
         dnf install -y git
       fi
     fi
@@ -189,16 +115,13 @@ sync_backend() {
       git -c credential.helper= -c core.askPass= clone "$${auth_url}" "$${backend_dir}"
       git -C "$${backend_dir}" checkout "$${BACKEND_REF}"
     fi
-    git_fetch_or_clone_cleanup_remote "$${backend_dir}" "$${clean_url}"
+    git_cleanup_remote "$${backend_dir}" "$${clean_url}"
   fi
 }
 
 obtain_certificate() {
   local tls_script="$${DEPLOY_PATH}/.generated/ensure-site-tls.sh"
-  if [[ ! -f "$${tls_script}" ]]; then
-    log "ERROR: missing $${tls_script}"
-    exit 1
-  fi
+  [[ -f "$${tls_script}" ]] || die "missing $${tls_script}"
   chmod 755 "$${tls_script}"
   env DOMAIN="$${DOMAIN}" ACME_EMAIL="$${ACME_EMAIL}" DEPLOY_PATH="$${DEPLOY_PATH}" \
     bash "$${tls_script}"
@@ -217,7 +140,6 @@ certbot renew --quiet --webroot -w /var/www/certbot \
 EOF
   chmod 755 "$${renew_script}"
 
-  # Deploy hook also reloads nginx if certbot ran without our wrapper
   local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
   mkdir -p "$${hook_dir}"
   cat > "$${hook_dir}/m-dicail-reload-nginx.sh" <<EOF
@@ -234,55 +156,11 @@ EOF
   systemctl enable --now certbot.timer 2>/dev/null || true
 }
 
-start_stack() {
-  log "Building and starting Docker Compose stack"
-  cd "$${DEPLOY_PATH}"
-  stop_insecure_published_stacks
-  docker compose -f "$${COMPOSE_FILE}" up -d postgres
-  local i
-  for i in $$(seq 1 30); do
-    if docker compose -f "$${COMPOSE_FILE}" exec -T postgres pg_isready >/dev/null 2>&1; then
-      break
-    fi
-    sleep 2
-  done
-  docker compose -f "$${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate --no-deps api ai
-  docker compose -f "$${COMPOSE_FILE}" up -d --force-recreate --no-deps nginx
-  # Re-apply DOCKER-USER after compose publishes 80/443.
-  if [[ -x /usr/local/sbin/m-dicail-docker-user-fw ]]; then
-    /usr/local/sbin/m-dicail-docker-user-fw || true
-  fi
-  ASSERT_ONLY=true bash "$${FIREWALL_SCRIPT}"
-}
-
-require_prod_env() {
-  local envf="$${DEPLOY_PATH}/.env"
-  local key val missing=""
-  [[ -f "$${envf}" ]] || { log "ERROR: missing $${envf}"; exit 1; }
-  env_val() {
-    awk -F= -v k="$1" 'BEGIN{f=0} $1==k && !f {sub(/^[^=]*=/, ""); print; f=1}' "$${envf}" | tr -d '\r'
-  }
-  for key in SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB APP_PUBLIC_URL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS WEBAUTHN_RP_ID WEBAUTHN_ORIGIN; do
-    val="$(env_val "$${key}")"
-    val="$${val#\"}"
-    val="$${val%\"}"
-    if [[ -z "$${val}" ]]; then
-      missing="$${missing} $${key}"
-    fi
-  done
-  if [[ -n "$${missing}" ]]; then
-    log "ERROR: production .env missing:$${missing}"
-    log "ERROR: v0.0.11 exits on empty SMTP/WebAuthn/APP_PUBLIC_URL when NODE_ENV=production"
-    exit 1
-  fi
-  log "Production .env has required keys (values not printed)"
-}
-
 health_check() {
   local url="https://$${DOMAIN}/health"
   log "Waiting for $${url}"
   local i
-  for i in $(seq 1 36); do
+  for i in $$(seq 1 36); do
     if curl -fsS --max-time 5 "$${url}" | grep -q ok; then
       log "Health check passed"
       return 0
@@ -297,10 +175,10 @@ health_check() {
 
 main() {
   if [[ "$${EUID}" -ne 0 ]]; then
-    log "This script expects root (or passwordless sudo as root). Re-run via sudo."
-    exit 1
+    die "this script expects root (or passwordless sudo as root). Re-run via sudo."
   fi
 
+  reject_expired_domain "$${DOMAIN}"
   install_docker
   install_certbot
   stop_insecure_published_stacks
@@ -308,7 +186,8 @@ main() {
   sync_backend
   obtain_certificate
   require_prod_env
-  start_stack
+  stop_insecure_published_stacks
+  start_compose_stack true
   install_renewal_hook
   health_check
   log "Deploy complete"

@@ -36,22 +36,26 @@ After apply, the API is at `https://medicail.nf2.tech`.
 
 ```
 m-dicail-deployment/
-├── .github/workflows/
-│   ├── deploy.yml                # manual tag deploy (workflow_dispatch)
-│   ├── sync-env.yml              # push .env to VPS from GitHub Secrets
-│   └── terraform-apply.yml       # bootstrap / infra re-sync without local tfvars
+├── .github/
+│   ├── actions/setup-vps-ssh/    # shared SSH agent setup for Actions
+│   └── workflows/
+│       ├── deploy.yml            # manual tag deploy (rewrites .env from Secrets)
+│       ├── sync-env.yml          # push .env to VPS from GitHub Secrets
+│       └── terraform-apply.yml   # bootstrap / infra re-sync (state via Actions artifact)
 ├── docker/
-│   ├── docker-compose.prod.yml   # prod stack (Postgres not published)
-│   └── nginx/                    # base nginx.conf; site conf rendered by Terraform
+│   ├── docker-compose.prod.yml
+│   └── nginx/                    # base nginx.conf + snippets; site conf rendered at deploy
 ├── scripts/
-│   ├── configure-host-firewall.sh  # UFW + DOCKER-USER lockdown (80/443/SSH only)
-│   ├── deploy-backend-tag.sh     # VPS tag checkout + compose rebuild (used by Actions)
-│   └── ensure-site-tls.sh        # nginx site render + Let's Encrypt (webroot)
+│   ├── lib/                      # shared bash (git auth, prod env, compose up)
+│   ├── configure-host-firewall.sh
+│   ├── deploy-backend-tag.sh
+│   ├── ensure-site-tls.sh
+│   └── render-env.sh             # canonical .env renderer (Actions + Terraform)
 ├── terraform/
-│   ├── main.tf                   # SSH provisioners + deploy
+│   ├── main.tf
 │   ├── variables.tf
 │   ├── outputs.tf
-│   └── templates/                # .env, deploy.sh, nginx-default.conf (__DOMAIN__, __CERT_NAME__)
+│   └── templates/                # deploy.sh, nginx-default.conf (__DOMAIN__, __CERT_NAME__)
 └── terraform.tfvars.example
 ```
 
@@ -63,6 +67,7 @@ On the VPS, files land under `/opt/m-dicail` by default:
 | `.env` | Secrets (mode 600) |
 | `backend/` | Git clone used as Docker build context |
 | `nginx/` | Prod nginx config with ACME + TLS redirect |
+| `.generated/lib/` | Shared deploy helpers synced from this repo |
 
 ## Deploy (bootstrap with Terraform)
 
@@ -88,7 +93,7 @@ Useful outputs after apply:
 
 1. Installs Docker Engine + Compose plugin (and Certbot) if missing.
 2. Locks down the host firewall (`manage_firewall`): UFW default-deny with only SSH/80/443, plus DOCKER-USER iptables rules so published container ports cannot bypass UFW. Deploy fails if 5432/8000/8001 are still listening publicly.
-3. Syncs Compose, nginx, and `.env` to `deploy_path`.
+3. Renders `.env` via `scripts/render-env.sh`, then syncs Compose, nginx, libs, and `.env` to `deploy_path`.
 4. Clones or updates `m-dicail-backend` at `backend_ref`.
 5. Obtains a Let's Encrypt cert for `medicail.nf2.tech` via Certbot **webroot** if nginx is already up, or **standalone** on first install.
 6. Runs `docker compose up` (Postgres is not force-recreated; API/AI/nginx are). Postgres stays on an internal Docker network; API/AI only on the Compose network — not host-published.
@@ -122,27 +127,7 @@ That push does not trigger a deploy.
 
 ### GitHub setup (`m-dicail-deployment`)
 
-Open the deployment repo → **Settings** → **Secrets and variables** → **Actions**.
-
-**Secrets**
-
-| Name | Purpose |
-|------|---------|
-| `VPS_HOST` | VPS IP or hostname (**required**) |
-| `VPS_USER` | SSH user (defaults to `root` if unset) |
-| `VPS_PORT` | SSH port (defaults to `22` if unset) |
-| `VPS_SSH_PRIVATE_KEY` | Private key used by Actions to SSH into the VPS (PEM / OpenSSH format, full file contents) |
-| `VPS_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <VPS_HOST>` (recommended; pins host key) |
-| `BACKEND_READ_TOKEN` | PAT or fine-grained token with `contents:read` on `NoFastNoFun/m-dicail-backend` (required if the backend repo is private; recommended for rate limits even if public) |
-
-**Variables**
-
-| Name | Example / default | Purpose |
-|------|-------------------|---------|
-| `DEPLOY_PATH` | `/opt/m-dicail` | Install path on the VPS |
-| `BACKEND_REPO` | `NoFastNoFun/m-dicail-backend` | `owner/repo` used to verify the tag via GitHub API |
-| `BACKEND_REPO_URL` | `https://github.com/NoFastNoFun/m-dicail-backend.git` | Git URL cloned/fetched on the VPS |
-| `DOMAIN` | `medicail.nf2.tech` | Public hostname (nginx `server_name`, cert, health check). Must not stay `medicail.nf2.dev`. |
+Open the deployment repo → **Settings** → **Secrets and variables** → **Actions**. Configure the secrets and variables listed under [Secrets](#secrets-terraform-and-github-actions) below.
 
 #### SSH key on the VPS
 
@@ -180,7 +165,7 @@ This deployment repo is separate from `m-dicail-backend`. The workflow checks th
 4. Watch the job; it fails immediately if the tag is missing on the backend repo.
 5. Confirm `https://medicail.nf2.tech/health`.
 
-The workflow syncs `docker-compose.prod.yml`, nginx configs, and `scripts/ensure-site-tls.sh` from this repo, copies `scripts/deploy-backend-tag.sh` to the VPS, checks out that tag under `/opt/m-dicail/backend`, issues or reuses a Let's Encrypt cert for `DOMAIN`, runs `docker compose up` for api/ai/nginx, and smoke-checks health. It does not install Docker — that still comes from the initial Terraform bootstrap.
+The workflow syncs Compose, nginx (including proxy snippets), deploy libs, and scripts from this repo, **rewrites `/opt/m-dicail/.env` from GitHub Secrets** via `scripts/render-env.sh`, checks out the tag under `/opt/m-dicail/backend`, issues or reuses a Let's Encrypt cert for `DOMAIN`, runs `docker compose up` for api/ai/nginx, and smoke-checks health. It does not install Docker — that still comes from the initial Terraform bootstrap.
 
 ### Non-goals
 
@@ -201,41 +186,42 @@ The workflow syncs `docker-compose.prod.yml`, nginx configs, and `scripts/ensure
 | VPS `/opt/m-dicail/.env` | Full runtime env for Docker | API container at boot |
 | Local `terraform.tfvars` | Optional; gitignored | You, if you run Terraform locally |
 
-The **Deploy backend tag** workflow does **not** read app secrets. It reuses the existing `.env` on the VPS. Tag deploys alone cannot set SMTP or `SECRET_KEY`.
+**Deploy backend tag** and **Sync VPS environment** both render `.env` from GitHub Secrets (via `scripts/render-env.sh`) and upload it to the VPS. Tag deploy therefore needs the same app secrets as sync (including SMTP). Use **Sync VPS environment** when you only want to rotate secrets without rebuilding from a new tag.
 
-### If you do not have secrets locally (recommended)
-
-Use GitHub Actions on `m-dicail-deployment`:
+### Recommended Actions flow
 
 1. **First-time VPS bootstrap** — Actions → **Terraform apply** (installs Docker, TLS, clones backend, writes `.env`).
 2. **Change secrets later** (SMTP, DB password, etc.) — Actions → **Sync VPS environment** (rewrites `.env`, optionally rebuilds API).
-3. **Release a backend tag** — Actions → **Deploy backend tag** (unchanged).
+3. **Release a backend tag** — Actions → **Deploy backend tag** (syncs stack files, rewrites `.env`, rebuilds from the tag).
 
 Configure **Settings → Secrets and variables → Actions** on the deployment repo:
 
-**Secrets (required for bootstrap / env sync)**
+**Secrets**
 
-| Name | Purpose |
-|------|---------|
-| `VPS_HOST` | VPS IP or hostname |
-| `VPS_SSH_PRIVATE_KEY` | SSH key for Actions → VPS |
-| `VPS_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <VPS_HOST>` (recommended) |
-| `SECRET_KEY` | JWT signing key |
-| `POSTGRES_USER` | Postgres user |
-| `POSTGRES_PASSWORD` | Postgres password |
-| `POSTGRES_DB` | Postgres database name |
-| `BACKEND_READ_TOKEN` | GitHub PAT with `contents:read` on backend repo |
-| `SMTP_USER` | Proton SMTP user (required for password-reset mail) |
-| `SMTP_PASS` | Proton SMTP token (required for password-reset mail) |
-| `NCBI_API_KEY` | Optional PubMed API key |
+| Name | Purpose | Used by |
+|------|---------|---------|
+| `VPS_HOST` | VPS IP or hostname | all workflows |
+| `VPS_USER` | SSH user (defaults to `root` if unset) | all workflows |
+| `VPS_PORT` | SSH port (defaults to `22` if unset) | all workflows |
+| `VPS_SSH_PRIVATE_KEY` | Private key for Actions → VPS | all workflows |
+| `VPS_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <VPS_HOST>` (recommended) | all workflows |
+| `SECRET_KEY` | JWT signing key | terraform-apply, deploy, sync-env |
+| `POSTGRES_USER` | Postgres user | terraform-apply, deploy, sync-env |
+| `POSTGRES_PASSWORD` | Postgres password | terraform-apply, deploy, sync-env |
+| `POSTGRES_DB` | Postgres database name | terraform-apply, deploy, sync-env |
+| `BACKEND_READ_TOKEN` | GitHub PAT with `contents:read` on backend repo | terraform-apply, deploy |
+| `SMTP_USER` | Proton SMTP user | deploy, sync-env (and terraform-apply if set) |
+| `SMTP_PASS` | Proton SMTP token | deploy, sync-env (and terraform-apply if set) |
+| `NCBI_API_KEY` | Optional PubMed API key | deploy, sync-env, terraform-apply |
 
-**Variables (non-secret defaults)**
+**Variables**
 
 | Name | Example | Purpose |
 |------|---------|---------|
-| `DOMAIN` | `medicail.nf2.tech` | Public hostname |
-| `ACME_EMAIL` | `ops@example.com` | Let's Encrypt contact (Terraform apply only) |
+| `DOMAIN` | `medicail.nf2.tech` | Public hostname (must not be `*.nf2.dev`) |
+| `ACME_EMAIL` | `ops@example.com` | Let's Encrypt contact (Terraform apply) |
 | `DEPLOY_PATH` | `/opt/m-dicail` | Install path on VPS |
+| `BACKEND_REPO` | `NoFastNoFun/m-dicail-backend` | `owner/repo` for tag verification |
 | `BACKEND_REPO_URL` | `https://github.com/.../m-dicail-backend.git` | Backend clone URL |
 | `BACKEND_REF` | `main` | Branch/tag for Terraform bootstrap |
 | `SMTP_HOST` | `smtp.proton.me` | SMTP server |
@@ -244,9 +230,7 @@ Configure **Settings → Secrets and variables → Actions** on the deployment r
 | `NCBI_EMAIL` | `ops@example.com` | NCBI contact email |
 | `WEBAUTHN_RP_NAME` | `Medicail` | Passkey display name |
 
-`APP_PUBLIC_URL`, `APP_DEEPLINK_SCHEME` (default `medicail`), `WEBAUTHN_RP_ID`, and `WEBAUTHN_ORIGIN` are derived from `DOMAIN` / defaults automatically.
-
-Optional: `VPS_USER` (default `root`), `VPS_PORT` (default `22`).
+`APP_PUBLIC_URL`, `APP_DEEPLINK_SCHEME` (default `medicail`), `WEBAUTHN_RP_ID`, and `WEBAUTHN_ORIGIN` are derived from `DOMAIN` / defaults by `scripts/render-env.sh`.
 
 ### Local Terraform (optional)
 
@@ -256,6 +240,10 @@ If you prefer local bootstrap instead of the **Terraform apply** workflow:
 - Or export `TF_VAR_smtp_pass`, `TF_VAR_secret_key`, etc. without a file.
 
 Do **not** commit `terraform.tfvars` or Terraform state files that contain secrets.
+
+### Terraform state in GitHub Actions
+
+The **Terraform apply** workflow stores `terraform.tfstate` as a GitHub Actions artifact (90-day retention, no locking). Always restore the latest artifact before a new apply. A missing artifact means an empty state and can re-run provisioners unexpectedly. This is a bootstrap convenience, not a production remote backend.
 
 ## TLS renewal
 
@@ -284,5 +272,5 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 - Postgres is **not** published on the host in production (Compose `db` network is `internal: true`). API/AI use `expose` only — nginx is the sole public entry on 80/443.
 - Local/dev `m-dicail-backend/docker-compose.yml` still publishes `5432` for local work; never run that compose file on the VPS.
-- Host firewall: keep `manage_firewall = true` (default). Docker bypasses UFW INPUT for published ports; this deploy installs DOCKER-USER rules so only 80/443 stay reachable that way.
+- Host firewall: keep `manage_firewall = true` (default). Docker bypasses UFW INPUT for published ports; this deploy installs DOCKER-USER rules so only 80/443 stay reachable that way. `configure-host-firewall.sh` runs `ufw --force reset`, which wipes prior UFW rules before applying the lockdown.
 - First certificate issuance needs the Cloudflare A record already pointing at the VPS and port 80 reachable (use grey cloud for that step).

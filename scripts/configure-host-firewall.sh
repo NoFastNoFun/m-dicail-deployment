@@ -103,6 +103,7 @@ EOF
 configure_ufw() {
   install_ufw
 
+  # Wipes any prior UFW rules, then applies SSH/80/443 only.
   log "Configuring UFW (default deny; allow ${SSH_PORT}/tcp, 80, 443)"
   ufw --force reset >/dev/null 2>&1 || true
   ufw default deny incoming

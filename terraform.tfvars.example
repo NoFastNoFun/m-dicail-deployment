@@ -22,9 +22,9 @@ acme_email = "ops@example.com"
 backend_git_token = "ghp_or_github_pat_xxx"
 
 secret_key        = "change-me-to-a-long-random-string"
-postgres_user     = "mdicail"
+postgres_user     = "medicail"
 postgres_password = "change-me-strong-password"
-postgres_db       = "mdicail"
+postgres_db       = "medicail"
 
 # Optional
 ncbi_api_key           = ""

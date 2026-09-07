@@ -10,34 +10,22 @@ BACKEND_REPO_URL="${BACKEND_REPO_URL:-https://github.com/NoFastNoFun/m-dicail-ba
 DOMAIN="${DOMAIN:-medicail.nf2.tech}"
 BACKEND_TAG="${BACKEND_TAG:-}"
 
-# Expired zone leftover: GitHub vars.DOMAIN may still be medicail.nf2.dev.
-if [[ "${DOMAIN}" == *".nf2.dev" ]]; then
-  echo "[m-dicail-deploy] WARN: DOMAIN=${DOMAIN} uses expired nf2.dev; forcing medicail.nf2.tech" >&2
-  DOMAIN="medicail.nf2.tech"
-fi
-
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"
 BACKEND_DIR="${DEPLOY_PATH}/backend"
 TOKEN_FILE="${DEPLOY_PATH}/.generated/backend-git-token"
 FIREWALL_SCRIPT="${DEPLOY_PATH}/.generated/configure-host-firewall.sh"
 MANAGE_FIREWALL="${MANAGE_FIREWALL:-true}"
 SSH_PORT="${SSH_PORT:-22}"
+LOG_PREFIX="m-dicail-deploy"
+
+LIB_DIR="${DEPLOY_PATH}/.generated/lib"
+# shellcheck source=lib/common.sh
+source "${LIB_DIR}/common.sh"
+# shellcheck source=lib/git-backend.sh
+source "${LIB_DIR}/git-backend.sh"
 
 # Never use SSH for GitHub on the VPS (avoids host-key prompts / deploy keys).
 unset GIT_SSH_COMMAND || true
-
-log() {
-  echo "[m-dicail-deploy] $*"
-}
-
-die() {
-  log "ERROR: $*"
-  exit 1
-}
-
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
-}
 
 normalize_tag() {
   local tag="$1"
@@ -51,46 +39,6 @@ require_root() {
   fi
 }
 
-read_backend_token() {
-  if [[ -n "${BACKEND_GIT_TOKEN:-}" ]]; then
-    printf '%s' "${BACKEND_GIT_TOKEN}"
-    return
-  fi
-  if [[ -f "${TOKEN_FILE}" ]]; then
-    tr -d '\r\n' < "${TOKEN_FILE}"
-  fi
-}
-
-https_github_url() {
-  local url="$1"
-  case "${url}" in
-    git@github.com:*)
-      printf 'https://github.com/%s' "${url#git@github.com:}"
-      ;;
-    ssh://git@github.com/*)
-      printf 'https://github.com/%s' "${url#ssh://git@github.com/}"
-      ;;
-    *)
-      printf '%s' "${url}"
-      ;;
-  esac
-}
-
-github_authed_url() {
-  local clean token hostpath
-  clean="$(https_github_url "$1")"
-  token="$(read_backend_token)"
-  if [[ -z "${token}" ]]; then
-    die "empty GitHub PAT. Set backend_git_token (terraform) or BACKEND_READ_TOKEN (Actions). File: ${TOKEN_FILE}"
-  fi
-  hostpath="${clean#https://}"
-  hostpath="${hostpath#http://}"
-  if [[ "${hostpath}" == *@* ]]; then
-    hostpath="${hostpath#*@}"
-  fi
-  printf 'https://x-access-token:%s@%s' "${token}" "${hostpath}"
-}
-
 require_bootstrap() {
   mkdir -p "${DEPLOY_PATH}"
 
@@ -98,44 +46,12 @@ require_bootstrap() {
   [[ -f "${DEPLOY_PATH}/.env" ]] || die "missing ${DEPLOY_PATH}/.env; bootstrap the VPS once with: cd terraform && terraform apply"
   [[ -f "${DEPLOY_PATH}/nginx/nginx.conf" ]] || log "WARN: missing ${DEPLOY_PATH}/nginx/nginx.conf (nginx may fail until terraform apply or Actions sync)"
   [[ -f "${DEPLOY_PATH}/nginx/nginx-default.conf.tpl" ]] || die "missing ${DEPLOY_PATH}/nginx/nginx-default.conf.tpl; sync the nginx template from the deployment repo"
+  [[ -f "${DEPLOY_PATH}/nginx/snippets/proxy-headers.conf" ]] || die "missing ${DEPLOY_PATH}/nginx/snippets/proxy-headers.conf; sync nginx snippets from the deployment repo"
 
   require_cmd docker
   docker compose version >/dev/null 2>&1 || die "docker compose plugin required (install via terraform apply or install Docker on the VPS)"
   require_cmd git
   require_cmd curl
-}
-
-# Read a key from /opt/m-dicail/.env without printing the value.
-env_file_value() {
-  local key="$1"
-  local line=""
-  [[ -f "${DEPLOY_PATH}/.env" ]] || return 0
-  line="$(awk -F= -v k="${key}" 'BEGIN{found=0} $1==k && !found {sub(/^[^=]*=/, ""); print; found=1}' "${DEPLOY_PATH}/.env" | tr -d '\r')"
-  line="${line#\"}"
-  line="${line%\"}"
-  line="${line#\'}"
-  line="${line%\'}"
-  printf '%s' "${line}"
-}
-
-require_prod_env() {
-  local key val missing=()
-  [[ -f "${DEPLOY_PATH}/.env" ]] || die "missing ${DEPLOY_PATH}/.env"
-
-  for key in SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB APP_PUBLIC_URL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS WEBAUTHN_RP_ID WEBAUTHN_ORIGIN; do
-    val="$(env_file_value "${key}")"
-    if [[ -z "${val}" ]]; then
-      missing+=("${key}")
-    fi
-  done
-  if [[ -z "$(env_file_value SMTP_FROM)" && -z "$(env_file_value SMTP_USER)" ]]; then
-    missing+=("SMTP_FROM")
-  fi
-
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    die "production .env missing: ${missing[*]}. v0.0.11 boots with NODE_ENV=production and exits if these are empty (nginx then 502s). Run GitHub Actions → Sync VPS environment after setting secrets SMTP_USER and SMTP_PASS (and variable SMTP_FROM). Set variable DOMAIN=medicail.nf2.tech first so Sync does not rewrite URLs back to nf2.dev."
-  fi
-  log "Production .env has required keys (values not printed)"
 }
 
 sync_backend_tag() {
@@ -152,15 +68,15 @@ sync_backend_tag() {
     log "Fetching tags in ${BACKEND_DIR}"
     git -C "${BACKEND_DIR}" remote set-url origin "${auth_url}"
     git -C "${BACKEND_DIR}" -c credential.helper= -c core.askPass= fetch --all --tags --prune
-    git -C "${BACKEND_DIR}" remote set-url origin "${clean_url}"
+    git_cleanup_remote "${BACKEND_DIR}" "${clean_url}"
   else
     log "Cloning backend from ${BACKEND_REPO_URL}"
     rm -rf "${BACKEND_DIR}"
     git -c credential.helper= -c core.askPass= clone "${auth_url}" "${BACKEND_DIR}"
-    git -C "${BACKEND_DIR}" remote set-url origin "${clean_url}"
+    git_cleanup_remote "${BACKEND_DIR}" "${clean_url}"
     git -C "${BACKEND_DIR}" remote set-url origin "${auth_url}"
     git -C "${BACKEND_DIR}" -c credential.helper= -c core.askPass= fetch --all --tags --prune
-    git -C "${BACKEND_DIR}" remote set-url origin "${clean_url}"
+    git_cleanup_remote "${BACKEND_DIR}" "${clean_url}"
   fi
 
   if ! git -C "${BACKEND_DIR}" rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
@@ -174,43 +90,6 @@ sync_backend_tag() {
   log "Backend at $(git -C "${BACKEND_DIR}" rev-parse --short HEAD) (${tag})"
 }
 
-start_stack() {
-  log "Building and starting Docker Compose stack"
-  cd "${DEPLOY_PATH}"
-
-  docker compose -f "${COMPOSE_FILE}" up -d postgres
-  local i
-  for i in $(seq 1 30); do
-    if docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready >/dev/null 2>&1; then
-      break
-    fi
-    sleep 2
-  done
-
-  docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans --force-recreate --no-deps api ai
-  docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --no-deps nginx
-
-  if [[ -x /usr/local/sbin/m-dicail-docker-user-fw ]]; then
-    /usr/local/sbin/m-dicail-docker-user-fw || true
-  fi
-  if [[ -f "${FIREWALL_SCRIPT}" ]]; then
-    chmod 755 "${FIREWALL_SCRIPT}"
-    ASSERT_ONLY=true bash "${FIREWALL_SCRIPT}"
-  fi
-}
-
-stop_insecure_published_stacks() {
-  local id name ports
-  while IFS=$'\t' read -r id name ports; do
-    [[ -n "${id}" ]] || continue
-    if echo "${ports}" | grep -Eq '0\.0\.0\.0:(5432|8000|8001)->|:::(5432|8000|8001)->'; then
-      log "Stopping container with public app/db ports: ${name} (${ports})"
-      docker stop "${id}" >/dev/null 2>&1 || true
-      docker rm "${id}" >/dev/null 2>&1 || true
-    fi
-  done < <(docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null || true)
-}
-
 configure_firewall() {
   if [[ ! -f "${FIREWALL_SCRIPT}" ]]; then
     log "WARN: missing ${FIREWALL_SCRIPT}; run terraform apply to install host firewall lockdown"
@@ -218,6 +97,11 @@ configure_firewall() {
   fi
   chmod 755 "${FIREWALL_SCRIPT}"
   env MANAGE_FIREWALL="${MANAGE_FIREWALL}" SSH_PORT="${SSH_PORT}" bash "${FIREWALL_SCRIPT}"
+}
+
+dump_api_failure() {
+  docker compose -f "${COMPOSE_FILE}" ps || true
+  docker compose -f "${COMPOSE_FILE}" logs --tail=120 api || true
 }
 
 health_check() {
@@ -244,13 +128,9 @@ health_check() {
   exit 1
 }
 
-dump_api_failure() {
-  docker compose -f "${COMPOSE_FILE}" ps || true
-  docker compose -f "${COMPOSE_FILE}" logs --tail=120 api || true
-}
-
 main() {
   require_root
+  reject_expired_domain "${DOMAIN}"
 
   [[ -n "${BACKEND_TAG}" ]] || die "BACKEND_TAG is required"
 
@@ -270,7 +150,7 @@ main() {
     log "WARN: missing ${DEPLOY_PATH}/.generated/ensure-site-tls.sh; nginx/TLS will not be updated"
   fi
   require_prod_env
-  start_stack
+  start_compose_stack true
   health_check
   log "Deploy of tag ${tag} complete"
 }

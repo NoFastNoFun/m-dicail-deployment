@@ -24,6 +24,11 @@ variable "domain" {
   description = "Public domain pointing at the VPS via Cloudflare DNS (Let's Encrypt HTTP-01)"
   type        = string
   default     = "medicail.nf2.tech"
+
+  validation {
+    condition     = !can(regex("\\.nf2\\.dev$", var.domain))
+    error_message = "domain uses expired nf2.dev; set domain = \"medicail.nf2.tech\"."
+  }
 }
 
 variable "acme_email" {
@@ -63,13 +68,15 @@ variable "manage_firewall" {
 }
 
 variable "port" {
-  type    = number
-  default = 8000
+  description = "API listen port inside the Compose network"
+  type        = number
+  default     = 8000
 }
 
 variable "ai_port" {
-  type    = number
-  default = 8001
+  description = "AI service listen port inside the Compose network"
+  type        = number
+  default     = 8001
 }
 
 variable "secret_key" {
@@ -79,17 +86,20 @@ variable "secret_key" {
 }
 
 variable "postgres_user" {
-  type      = string
-  sensitive = true
+  description = "Postgres username for the Medicail database"
+  type        = string
+  sensitive   = true
 }
 
 variable "postgres_password" {
-  type      = string
-  sensitive = true
+  description = "Postgres password"
+  type        = string
+  sensitive   = true
 }
 
 variable "postgres_db" {
-  type = string
+  description = "Postgres database name"
+  type        = string
 }
 
 variable "ncbi_api_key" {
@@ -106,13 +116,15 @@ variable "ncbi_email" {
 }
 
 variable "access_token_ttl" {
-  type    = string
-  default = "1h"
+  description = "JWT access token lifetime (e.g. 1h)"
+  type        = string
+  default     = "1h"
 }
 
 variable "refresh_token_ttl_days" {
-  type    = number
-  default = 7
+  description = "Refresh token lifetime in days"
+  type        = number
+  default     = 7
 }
 
 variable "smtp_host" {

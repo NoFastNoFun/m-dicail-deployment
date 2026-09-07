@@ -103,4 +103,7 @@ jobs:
           name: terraform-state
           path: terraform/terraform.tfstate
           if-no-files-found: ignore
+          # Artifact state is not a real remote backend: no locking, 90-day retention.
+          # Prefer downloading the latest artifact before apply; treat a missing artifact
+          # as a footgun (empty state can recreate provisioners). Migrate to remote state later.
           retention-days: 90

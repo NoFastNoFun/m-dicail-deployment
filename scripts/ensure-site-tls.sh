@@ -22,6 +22,10 @@ die() {
   exit 1
 }
 
+if [[ "${DOMAIN}" == *".nf2.dev" ]]; then
+  die "DOMAIN=${DOMAIN} uses expired nf2.dev; set DOMAIN=medicail.nf2.tech"
+fi
+
 live_cert_ok() {
   local name="$1"
   [[ -f "/etc/letsencrypt/live/${name}/fullchain.pem" && -f "/etc/letsencrypt/live/${name}/privkey.pem" ]]
@@ -58,10 +62,6 @@ render_nginx() {
   log "Wrote ${OUTPUT} (server_name=${DOMAIN} cert=${cert_name})"
 }
 
-guess_acme_email() {
-  printf '%s' "${ACME_EMAIL}"
-}
-
 obtain_certificate() {
   mkdir -p /var/www/certbot /etc/letsencrypt
   if live_cert_ok "${DOMAIN}"; then
@@ -71,10 +71,9 @@ obtain_certificate() {
 
   command -v certbot >/dev/null 2>&1 || die "certbot is not installed"
 
-  local email extra=(--non-interactive --agree-tos --keep-until-expiring -d "${DOMAIN}")
-  email="$(guess_acme_email)"
-  if [[ -n "${email}" ]]; then
-    extra+=(--email "${email}")
+  local extra=(--non-interactive --agree-tos --keep-until-expiring -d "${DOMAIN}")
+  if [[ -n "${ACME_EMAIL}" ]]; then
+    extra+=(--email "${ACME_EMAIL}")
   else
     extra+=(--register-unsafely-without-email)
   fi

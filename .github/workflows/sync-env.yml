@@ -49,36 +49,19 @@ jobs:
           missing=0
           for name in VPS_HOST SECRET_KEY POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB SMTP_USER SMTP_PASS; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::Secret or variable ${name} is required (v0.0.11+ API refuses to boot without SMTP in production)"
+              echo "::error::Secret ${name} is required (production API refuses to boot without SMTP)"
               missing=1
             fi
           done
           exit "${missing}"
 
-      - name: Start SSH agent
-        env:
-          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          if [ -z "${VPS_SSH_PRIVATE_KEY}" ]; then
-            echo "::error::Secret VPS_SSH_PRIVATE_KEY is required"
-            exit 1
-          fi
-          eval "$(ssh-agent -s)"
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          KEY_FILE="$(mktemp)"
-          printf '%s\n' "${VPS_SSH_PRIVATE_KEY}" > "${KEY_FILE}"
-          chmod 600 "${KEY_FILE}"
-          ssh-add "${KEY_FILE}"
-          rm -f "${KEY_FILE}"
-          if [ -n "${VPS_SSH_KNOWN_HOSTS}" ]; then
-            printf '%s\n' "${VPS_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
-          else
-            ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
-          fi
-          chmod 600 ~/.ssh/known_hosts
-          echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
+      - name: Start SSH agent and load key
+        uses: ./.github/actions/setup-vps-ssh
+        with:
+          ssh_private_key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          ssh_known_hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          vps_host: ${{ secrets.VPS_HOST }}
+          vps_port: ${{ secrets.VPS_PORT || '22' }}
 
       - name: Render and upload .env
         run: |
