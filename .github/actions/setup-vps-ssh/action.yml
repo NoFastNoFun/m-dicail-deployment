@@ -1,0 +1,57 @@
+name: Setup VPS SSH
+description: Start ssh-agent, load the VPS private key, and pin known_hosts
+
+inputs:
+  ssh_private_key:
+    description: PEM / OpenSSH private key contents
+    required: true
+  ssh_known_hosts:
+    description: Output of ssh-keyscan -H (recommended)
+    required: false
+    default: ""
+  vps_host:
+    description: VPS hostname or IP (used for keyscan fallback)
+    required: true
+  vps_port:
+    description: SSH port
+    required: false
+    default: "22"
+
+runs:
+  using: composite
+  steps:
+    - name: Start SSH agent and load key
+      shell: bash
+      env:
+        VPS_SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        VPS_SSH_KNOWN_HOSTS: ${{ inputs.ssh_known_hosts }}
+        VPS_HOST: ${{ inputs.vps_host }}
+        VPS_PORT: ${{ inputs.vps_port }}
+      run: |
+        set -euo pipefail
+        if [ -z "${VPS_SSH_PRIVATE_KEY}" ]; then
+          echo "::error::SSH private key is required"
+          exit 1
+        fi
+
+        eval "$(ssh-agent -s)"
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+
+        KEY_FILE="$(mktemp)"
+        printf '%s\n' "${VPS_SSH_PRIVATE_KEY}" > "${KEY_FILE}"
+        chmod 600 "${KEY_FILE}"
+        ssh-add "${KEY_FILE}"
+        rm -f "${KEY_FILE}"
+
+        if [ -n "${VPS_SSH_KNOWN_HOSTS}" ]; then
+          printf '%s\n' "${VPS_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+        else
+          echo "::warning::VPS_SSH_KNOWN_HOSTS not set; using ssh-keyscan (less safe)"
+          ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+        fi
+
+        echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
+        echo "SSH_AGENT_PID=${SSH_AGENT_PID}" >> "$GITHUB_ENV"

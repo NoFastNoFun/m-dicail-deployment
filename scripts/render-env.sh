@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Render /opt/m-dicail/.env from the current shell environment.
-# Used by GitHub Actions (secrets -> env vars) and optionally locally:
+# Canonical env shape for Compose — used by GitHub Actions and Terraform local-exec.
 #   export SECRET_KEY=... POSTGRES_USER=... && ./scripts/render-env.sh > .env
 set -euo pipefail
 
@@ -13,8 +13,8 @@ PORT="${PORT:-8000}"
 AI_PORT="${AI_PORT:-8001}"
 DOMAIN="${DOMAIN:-medicail.nf2.tech}"
 if [[ "${DOMAIN}" == *".nf2.dev" ]]; then
-  echo "[m-dicail-env] WARN: DOMAIN=${DOMAIN} uses expired nf2.dev; forcing medicail.nf2.tech" >&2
-  DOMAIN="medicail.nf2.tech"
+  echo "[m-dicail-env] ERROR: DOMAIN=${DOMAIN} uses expired nf2.dev; set DOMAIN=medicail.nf2.tech" >&2
+  exit 1
 fi
 ACCESS_TOKEN_TTL="${ACCESS_TOKEN_TTL:-1h}"
 REFRESH_TOKEN_TTL_DAYS="${REFRESH_TOKEN_TTL_DAYS:-7}"

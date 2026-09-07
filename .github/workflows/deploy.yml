@@ -85,43 +85,18 @@ jobs:
           exit "${missing}"
 
       - name: Start SSH agent and load key
-        env:
-          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          if [ -z "${VPS_SSH_PRIVATE_KEY}" ]; then
-            echo "::error::Secret VPS_SSH_PRIVATE_KEY is required"
-            exit 1
-          fi
-
-          eval "$(ssh-agent -s)"
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          KEY_FILE="$(mktemp)"
-          printf '%s\n' "${VPS_SSH_PRIVATE_KEY}" > "${KEY_FILE}"
-          chmod 600 "${KEY_FILE}"
-          ssh-add "${KEY_FILE}"
-          rm -f "${KEY_FILE}"
-
-          if [ -n "${VPS_SSH_KNOWN_HOSTS}" ]; then
-            printf '%s\n' "${VPS_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
-            chmod 600 ~/.ssh/known_hosts
-          else
-            echo "::warning::VPS_SSH_KNOWN_HOSTS not set; using ssh-keyscan (less safe)"
-            ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
-            chmod 600 ~/.ssh/known_hosts
-          fi
-
-          echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >> "$GITHUB_ENV"
-          echo "SSH_AGENT_PID=${SSH_AGENT_PID}" >> "$GITHUB_ENV"
+        uses: ./.github/actions/setup-vps-ssh
+        with:
+          ssh_private_key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          ssh_known_hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          vps_host: ${{ secrets.VPS_HOST }}
+          vps_port: ${{ secrets.VPS_PORT || '22' }}
 
       - name: Sync stack files and deploy script to VPS
         run: |
           set -euo pipefail
           ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
-            "sudo mkdir -p '${DEPLOY_PATH}/nginx/conf.d' '${DEPLOY_PATH}/.generated' && sudo chown -R '${VPS_USER}:${VPS_USER}' '${DEPLOY_PATH}' && if [ -f '${DEPLOY_PATH}/.env' ]; then sudo chown root:root '${DEPLOY_PATH}/.env' && sudo chmod 600 '${DEPLOY_PATH}/.env'; fi"
+            "sudo mkdir -p '${DEPLOY_PATH}/nginx/conf.d' '${DEPLOY_PATH}/nginx/snippets' '${DEPLOY_PATH}/.generated/lib' && sudo chown -R '${VPS_USER}:${VPS_USER}' '${DEPLOY_PATH}' && if [ -f '${DEPLOY_PATH}/.env' ]; then sudo chown root:root '${DEPLOY_PATH}/.env' && sudo chmod 600 '${DEPLOY_PATH}/.env'; fi"
 
           scp -P "${VPS_PORT}" \
             docker/docker-compose.prod.yml \
@@ -136,6 +111,10 @@ jobs:
             "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/nginx/nginx-default.conf.tpl"
 
           scp -P "${VPS_PORT}" \
+            docker/nginx/snippets/proxy-headers.conf \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/nginx/snippets/proxy-headers.conf"
+
+          scp -P "${VPS_PORT}" \
             scripts/configure-host-firewall.sh \
             "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/configure-host-firewall.sh"
 
@@ -144,8 +123,13 @@ jobs:
             "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/ensure-site-tls.sh"
 
           scp -P "${VPS_PORT}" \
+            scripts/lib/common.sh \
+            scripts/lib/git-backend.sh \
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/lib/"
+
+          scp -P "${VPS_PORT}" \
             scripts/deploy-backend-tag.sh \
-            "${VPS_USER}@${VPS_HOST}:/tmp/deploy-backend-tag.sh"
+            "${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/.generated/deploy-backend-tag.sh"
 
       - name: Render and upload .env from GitHub
         run: |
@@ -169,7 +153,8 @@ jobs:
           fi
 
           ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
-            "sudo env \
+            "sudo chmod 755 '${DEPLOY_PATH}/.generated/deploy-backend-tag.sh' '${DEPLOY_PATH}/.generated/lib/'*.sh && \
+             sudo env \
               BACKEND_TAG='${TAG}' \
               DEPLOY_PATH='${DEPLOY_PATH}' \
               BACKEND_REPO_URL='${BACKEND_REPO_URL}' \
@@ -177,5 +162,4 @@ jobs:
               ACME_EMAIL='${ACME_EMAIL}' \
               SSH_PORT='${VPS_PORT}' \
               MANAGE_FIREWALL='true' \
-              bash /tmp/deploy-backend-tag.sh \
-            && rm -f /tmp/deploy-backend-tag.sh"
+              bash '${DEPLOY_PATH}/.generated/deploy-backend-tag.sh'"
