@@ -213,6 +213,7 @@ Configure **Settings → Secrets and variables → Actions** on the deployment r
 | `SMTP_USER` | Proton SMTP user | deploy, sync-env (and terraform-apply if set) |
 | `SMTP_PASS` | Proton SMTP token | deploy, sync-env (and terraform-apply if set) |
 | `NCBI_API_KEY` | Optional PubMed API key | deploy, sync-env, terraform-apply |
+| `GROQ_API_KEY` | Groq API key for AI STT (apps/ai). POC sends consultation audio to Groq for post-recording enhance. | deploy, sync-env, terraform-apply |
 
 **Variables**
 

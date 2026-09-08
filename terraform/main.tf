@@ -19,6 +19,7 @@ locals {
     var.postgres_password,
     var.postgres_db,
     var.ncbi_api_key,
+    var.groq_api_key,
     var.ncbi_email,
     var.access_token_ttl,
     tostring(var.refresh_token_ttl_days),
@@ -93,6 +94,7 @@ resource "null_resource" "render_env" {
       POSTGRES_PASSWORD      = var.postgres_password
       POSTGRES_DB            = var.postgres_db
       NCBI_API_KEY           = var.ncbi_api_key
+      GROQ_API_KEY           = var.groq_api_key
       NCBI_EMAIL             = var.ncbi_email
       ACCESS_TOKEN_TTL       = var.access_token_ttl
       REFRESH_TOKEN_TTL_DAYS = tostring(var.refresh_token_ttl_days)

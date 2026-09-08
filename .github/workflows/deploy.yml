@@ -37,6 +37,7 @@ jobs:
       POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
       NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
       NCBI_EMAIL: ${{ vars.NCBI_EMAIL }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
       SMTP_FROM: ${{ vars.SMTP_FROM }}
