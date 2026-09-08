@@ -32,6 +32,7 @@ jobs:
       TF_VAR_postgres_db: ${{ secrets.POSTGRES_DB }}
       TF_VAR_ncbi_api_key: ${{ secrets.NCBI_API_KEY }}
       TF_VAR_ncbi_email: ${{ vars.NCBI_EMAIL }}
+      TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}
       TF_VAR_access_token_ttl: ${{ vars.ACCESS_TOKEN_TTL || '1h' }}
       TF_VAR_refresh_token_ttl_days: ${{ vars.REFRESH_TOKEN_TTL_DAYS || '7' }}
       TF_VAR_smtp_host: ${{ vars.SMTP_HOST || 'smtp.proton.me' }}

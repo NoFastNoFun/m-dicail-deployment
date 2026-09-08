@@ -109,6 +109,13 @@ variable "ncbi_api_key" {
   sensitive   = true
 }
 
+variable "groq_api_key" {
+  description = "Groq API key for AI speech-to-text (apps/ai). Required for cloud transcription enhance."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "ncbi_email" {
   description = "Optional NCBI contact email for E-utilities requests"
   type        = string

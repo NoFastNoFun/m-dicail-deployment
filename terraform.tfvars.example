@@ -28,6 +28,7 @@ postgres_db       = "medicail"
 
 # Optional
 ncbi_api_key           = ""
+groq_api_key           = ""
 ncbi_email             = "ops@example.com"
 access_token_ttl       = "1h"
 refresh_token_ttl_days = 7

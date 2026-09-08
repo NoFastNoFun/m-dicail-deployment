@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       recreate_api:
-        description: "Rebuild and restart the API container after syncing .env"
+        description: "Rebuild and restart the API and AI containers after syncing .env"
         required: false
         type: boolean
         default: true
@@ -35,6 +35,7 @@ jobs:
       POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
       NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
       NCBI_EMAIL: ${{ vars.NCBI_EMAIL }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
       SMTP_FROM: ${{ vars.SMTP_FROM }}
@@ -72,9 +73,9 @@ jobs:
             "sudo install -m 600 -o root -g root /tmp/m-dicail.env '${DEPLOY_PATH}/.env' && rm -f /tmp/m-dicail.env"
           rm -f /tmp/m-dicail.env
 
-      - name: Recreate API container
+      - name: Recreate API and AI containers
         if: inputs.recreate_api
         run: |
           set -euo pipefail
           ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
-            "cd '${DEPLOY_PATH}' && sudo docker compose -f docker-compose.prod.yml up -d --build --force-recreate --no-deps api"
+            "cd '${DEPLOY_PATH}' && sudo docker compose -f docker-compose.prod.yml up -d --build --force-recreate --no-deps api ai"
