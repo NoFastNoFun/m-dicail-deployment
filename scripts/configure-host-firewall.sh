@@ -100,10 +100,27 @@ EOF
   log "Installed DOCKER-USER helper at ${RULES_HELPER}"
 }
 
+ufw_already_locked_down() {
+  require_cmd ufw || return 1
+  ufw status 2>/dev/null | grep -q "m-dicail-ssh"
+}
+
 configure_ufw() {
   install_ufw
 
-  # Wipes any prior UFW rules, then applies SSH/80/443 only.
+  if ufw_already_locked_down; then
+    log "UFW already has m-dicail rules; skip --force reset (keeps unrelated allows)"
+    ufw allow "${SSH_PORT}/tcp" comment "m-dicail-ssh" || true
+    ufw allow 80/tcp comment "m-dicail-http" || true
+    ufw allow 443/tcp comment "m-dicail-https" || true
+    ufw deny 5432/tcp comment "m-dicail-block-postgres" || true
+    ufw deny 8000/tcp comment "m-dicail-block-api" || true
+    ufw deny 8001/tcp comment "m-dicail-block-ai" || true
+    ufw status verbose || true
+    return 0
+  fi
+
+  # First install only: wipe prior UFW rules, then SSH/80/443.
   log "Configuring UFW (default deny; allow ${SSH_PORT}/tcp, 80, 443)"
   ufw --force reset >/dev/null 2>&1 || true
   ufw default deny incoming
