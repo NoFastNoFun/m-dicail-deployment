@@ -29,7 +29,7 @@ services:
       - PORT=${PORT:-8000}
       - NODE_ENV=production
       - SECRET_KEY=${SECRET_KEY}
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - DATABASE_URL=${DATABASE_URL}
       - NCBI_API_KEY=${NCBI_API_KEY}
       - NCBI_EMAIL=${NCBI_EMAIL:-}
       - ACCESS_TOKEN_TTL=${ACCESS_TOKEN_TTL:-1h}
@@ -48,6 +48,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --timeout=3 http://127.0.0.1:$${PORT:-8000}/health | grep -q ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
     restart: unless-stopped
     networks:
       - edge
@@ -67,15 +73,19 @@ services:
       - GROQ_BASE_URL=${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
       - GROQ_TRANSCRIPTION_MODEL=${GROQ_TRANSCRIPTION_MODEL:-whisper-large-v3-turbo}
       - GROQ_TIMEOUT_MS=${GROQ_TIMEOUT_MS:-120000}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    healthcheck:
+      # No /health on the AI app; any HTTP response means the process is up.
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+(process.env.AI_PORT||8001)+'/',r=>process.exit(0)).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
     restart: unless-stopped
     networks:
       - edge
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     ports:
       - "80:80"
       - "443:443"
@@ -86,8 +96,10 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
     depends_on:
-      - api
-      - ai
+      api:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - edge
