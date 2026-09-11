@@ -244,7 +244,9 @@ Do **not** commit `terraform.tfvars` or Terraform state files that contain secre
 
 ### Terraform state in GitHub Actions
 
-The **Terraform apply** workflow stores `terraform.tfstate` as a GitHub Actions artifact (90-day retention, no locking). Always restore the latest artifact before a new apply. A missing artifact means an empty state and can re-run provisioners unexpectedly. This is a bootstrap convenience, not a production remote backend.
+The **Terraform apply** workflow stores `terraform.tfstate` as a GitHub Actions artifact (90-day retention, no locking). Always restore the latest artifact before a new apply. A missing artifact means an empty state and can re-run provisioners unexpectedly.
+
+This VPS is temporary (through 1 Nov 2026) and must stay zero extra cost — no S3/remote backend. That artifact is acceptable here: bootstrap **once**, then use **Deploy backend tag** for releases. Avoid a second Terraform apply unless the box was wiped.
 
 ## TLS renewal
 

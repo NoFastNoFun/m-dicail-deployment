@@ -56,7 +56,7 @@ locals {
   backend_git_token_file = var.backend_git_token
 
   # Bump when deploy semantics change so null_resource always re-runs.
-  deploy_generation = "8-clean-code-shared-lib"
+  deploy_generation = "9-temp-vps-hardening"
 
   content_fingerprint = sha256(join("|", [
     local.env_fingerprint,
