@@ -37,6 +37,24 @@ WEBAUTHN_RP_ID="${WEBAUTHN_RP_ID:-${DOMAIN}}"
 WEBAUTHN_ORIGIN="${WEBAUTHN_ORIGIN:-https://${DOMAIN}}"
 CORS_ORIGINS="${CORS_ORIGINS:-${APP_PUBLIC_URL}}"
 
+# Percent-encode user/password so @ : / # in POSTGRES_PASSWORD cannot break DATABASE_URL.
+urlencode() {
+  local s="$1" i c out=""
+  local LC_ALL=C
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) printf -v out '%s%%%02X' "$out" "'$c" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+POSTGRES_USER_ENC="$(urlencode "${POSTGRES_USER}")"
+POSTGRES_PASSWORD_ENC="$(urlencode "${POSTGRES_PASSWORD}")"
+POSTGRES_DB_ENC="$(urlencode "${POSTGRES_DB}")"
+DATABASE_URL="postgresql://${POSTGRES_USER_ENC}:${POSTGRES_PASSWORD_ENC}@postgres:5432/${POSTGRES_DB_ENC}"
+
 cat <<EOF
 PORT=${PORT}
 AI_PORT=${AI_PORT}
@@ -48,7 +66,7 @@ POSTGRES_USER=${POSTGRES_USER}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=${POSTGRES_DB}
 
-DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+DATABASE_URL=${DATABASE_URL}
 
 NCBI_API_KEY=${NCBI_API_KEY}
 NCBI_EMAIL=${NCBI_EMAIL}
