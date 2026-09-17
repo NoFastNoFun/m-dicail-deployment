@@ -171,3 +171,23 @@ variable "webauthn_rp_name" {
   type        = string
   default     = "Medicail"
 }
+
+variable "firebase_project_id" {
+  description = "Optional Firebase project ID for FCM (API skips push when empty)"
+  type        = string
+  default     = ""
+}
+
+variable "firebase_client_email" {
+  description = "Optional Firebase service-account client email for FCM"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "firebase_private_key" {
+  description = "Optional Firebase service-account PEM private key (\\n escaped)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

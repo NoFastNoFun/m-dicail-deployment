@@ -45,6 +45,9 @@ services:
       - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-medicail.nf2.tech}
       - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Medicail}
       - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://medicail.nf2.tech}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

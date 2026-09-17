@@ -41,6 +41,9 @@ jobs:
       TF_VAR_smtp_pass: ${{ secrets.SMTP_PASS }}
       TF_VAR_smtp_from: ${{ vars.SMTP_FROM }}
       TF_VAR_webauthn_rp_name: ${{ vars.WEBAUTHN_RP_NAME || 'Medicail' }}
+      TF_VAR_firebase_project_id: ${{ secrets.FIREBASE_PROJECT_ID }}
+      TF_VAR_firebase_client_email: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+      TF_VAR_firebase_private_key: ${{ secrets.FIREBASE_PRIVATE_KEY }}
 
     steps:
       - name: Checkout deployment repo

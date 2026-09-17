@@ -29,6 +29,9 @@ locals {
     var.smtp_pass,
     var.smtp_from,
     var.webauthn_rp_name,
+    var.firebase_project_id,
+    var.firebase_client_email,
+    var.firebase_private_key,
     var.domain,
   ]))
 
@@ -104,6 +107,9 @@ resource "null_resource" "render_env" {
       SMTP_PASS              = var.smtp_pass
       SMTP_FROM              = var.smtp_from
       WEBAUTHN_RP_NAME       = var.webauthn_rp_name
+      FIREBASE_PROJECT_ID    = var.firebase_project_id
+      FIREBASE_CLIENT_EMAIL  = var.firebase_client_email
+      FIREBASE_PRIVATE_KEY   = var.firebase_private_key
       DOMAIN                 = var.domain
     }
   }

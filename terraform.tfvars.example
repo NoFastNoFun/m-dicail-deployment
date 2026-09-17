@@ -42,3 +42,9 @@ smtp_from  = ""
 
 # WebAuthn display name (RP ID and origin are derived from domain)
 webauthn_rp_name = "Medicail"
+
+# Optional Firebase Admin for FCM (API skips send when empty). Prefer GitHub Secrets.
+# firebase_private_key must use literal \n escapes, not real newlines.
+# firebase_project_id    = ""
+# firebase_client_email  = ""
+# firebase_private_key   = ""
