@@ -282,3 +282,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 - Local/dev `m-dicail-backend/docker-compose.yml` still publishes `5432` for local work; never run that compose file on the VPS.
 - Host firewall: keep `manage_firewall = true` (default). Docker bypasses UFW INPUT for published ports; this deploy installs DOCKER-USER rules so only 80/443 stay reachable that way. `configure-host-firewall.sh` runs `ufw --force reset`, which wipes prior UFW rules before applying the lockdown.
 - First certificate issuance needs the Cloudflare A record already pointing at the VPS and port 80 reachable (use grey cloud for that step).
+
+## Contributors
+
+| GitHub username | First and last name |
+| --- | --- |
+| [`Setsudan`](https://github.com/Setsudan) | Ethan Launay |
